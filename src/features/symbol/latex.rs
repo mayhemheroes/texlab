@@ -6,7 +6,7 @@ use smol_str::SmolStr;
 use titlecase::titlecase;
 
 use crate::{
-    db::{AnalysisDatabase, DocumentDatabase, SyntaxDatabase},
+    db::{AnalysisDatabase, DocumentDatabase, SyntaxDatabase, WorkspaceDatabase},
     features::FeatureRequest,
     find_caption_by_parent, find_label_number,
     syntax::latex::{self, HasBrack, HasCurly},
@@ -453,7 +453,14 @@ fn find_label_by_parent(
         .line_index(context.request.document)
         .line_col_lsp_range(latex::small_range(&node));
 
-    let number = find_label_number(context.request.db, &name);
+    let number = find_label_number(
+        context.request.db,
+        &context
+            .request
+            .db
+            .compilation_unit(context.request.document),
+        &name,
+    );
     Some(NumberedLabel {
         name,
         range,

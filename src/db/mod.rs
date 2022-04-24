@@ -2,6 +2,7 @@ mod analysis;
 mod client_capabilities;
 mod client_info;
 mod client_options;
+mod diag;
 mod distro;
 mod document;
 mod location;
@@ -21,8 +22,8 @@ use crate::{
 };
 
 pub use self::{
-    analysis::*, client_capabilities::*, client_info::*, client_options::*, distro::*, document::*,
-    location::*, syntax::*, workspace::*,
+    analysis::*, client_capabilities::*, client_info::*, client_options::*, diag::*, distro::*,
+    document::*, location::*, syntax::*, workspace::*,
 };
 
 #[salsa::database(
@@ -30,6 +31,7 @@ pub use self::{
     ClientCapabilitiesDatabaseStorage,
     ClientInfoDatabaseStorage,
     ClientOptionsDatabaseStorage,
+    DiagnosticsDatabaseStorage,
     DistroDatabaseStorage,
     DocumentDatabaseStorage,
     LocationDatabaseStorage,

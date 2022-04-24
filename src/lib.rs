@@ -4,7 +4,6 @@ pub mod citation;
 mod client;
 pub mod component_db;
 pub mod db;
-pub mod diagnostics;
 mod dispatch;
 pub mod distro;
 mod document;

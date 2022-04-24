@@ -9,7 +9,7 @@ use lsp_types::TextDocumentPositionParams;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::db::{AnalysisDatabase, ClientOptionsDatabase, DocumentDatabase};
+use crate::db::{AnalysisDatabase, ClientOptionsDatabase, DocumentDatabase, WorkspaceDatabase};
 
 use super::FeatureRequest;
 
@@ -41,7 +41,7 @@ pub fn execute_forward_search(
 
     let root_document = request
         .db
-        .all_documents()
+        .compilation_unit(request.document)
         .into_iter()
         .find(|document| {
             let extras = request.db.extras(*document);

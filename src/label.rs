@@ -130,7 +130,7 @@ pub fn render_label(
     label_name: &str,
     mut label: Option<latex::LabelDefinition>,
 ) -> Option<RenderedLabel> {
-    let mut number = find_label_number(db, label_name);
+    let mut number = find_label_number(db, unit, label_name);
 
     for document in unit.iter().copied() {
         if let SyntaxTree::Latex(green) = db.syntax_tree(document) {
@@ -165,8 +165,12 @@ pub fn find_label_definition(
         })
 }
 
-pub fn find_label_number(db: &RootDatabase, label_name: &str) -> Option<String> {
-    db.all_documents().into_iter().find_map(|document| {
+pub fn find_label_number(
+    db: &RootDatabase,
+    project: &im::Vector<Document>,
+    label_name: &str,
+) -> Option<String> {
+    project.iter().copied().find_map(|document| {
         db.extras(document)
             .label_numbers_by_name
             .get(label_name)

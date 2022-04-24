@@ -1,4 +1,5 @@
 mod build;
+mod chktex;
 #[cfg(feature = "completion")]
 mod completion;
 mod cursor;
@@ -20,6 +21,7 @@ use crate::db::{Document, RootDatabase};
 pub use self::completion::{complete, CompletionItemData, COMPLETION_LIMIT};
 pub use self::{
     build::{BuildEngine, BuildParams, BuildResult, BuildStatus},
+    chktex::lint_with_chktex,
     definition::goto_definition,
     folding::find_foldings,
     formatting::format_source_code,

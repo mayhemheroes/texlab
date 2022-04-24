@@ -2,56 +2,19 @@ use std::{
     fs, io,
     path::Path,
     process::{Command, Stdio},
-    sync::Arc,
 };
 
-use lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Range, Url};
-use multimap::MultiMap;
+use lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Range};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use tempfile::tempdir;
 
-use crate::{Options, RangeExt, Workspace};
+use crate::RangeExt;
 
-pub fn analyze_latex_chktex(
-    workspace: &Workspace,
-    diagnostics_by_uri: &mut MultiMap<Arc<Url>, Diagnostic>,
-    uri: &Url,
-    options: &Options,
-) -> Option<()> {
-    let document = workspace.documents_by_uri.get(uri)?;
-    document.data.as_latex()?;
-
-    let current_dir = options
-        .root_directory
-        .as_ref()
-        .cloned()
-        .or_else(|| {
-            if document.uri.scheme() == "file" {
-                document
-                    .uri
-                    .to_file_path()
-                    .unwrap()
-                    .parent()
-                    .map(ToOwned::to_owned)
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| ".".into());
-
-    diagnostics_by_uri.remove(uri);
-    diagnostics_by_uri.insert_many(
-        Arc::clone(&document.uri),
-        lint(&document.text, &current_dir).unwrap_or_default(),
-    );
-    Some(())
-}
-
-pub static LINE_REGEX: Lazy<Regex> =
+static LINE_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new("(\\d+):(\\d+):(\\d+):(\\w+):(\\w+):(.*)").unwrap());
 
-fn lint(text: &str, current_dir: &Path) -> io::Result<Vec<Diagnostic>> {
+pub fn lint_with_chktex(text: &str, current_dir: &Path) -> io::Result<Vec<Diagnostic>> {
     let directory = tempdir()?;
     fs::write(directory.path().join("file.tex"), text)?;
     let _ = fs::copy(

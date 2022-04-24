@@ -8,20 +8,21 @@ use crossbeam_channel::{Receiver, Sender};
 use log::{error, info, warn};
 use lsp_server::{Connection, Message, RequestId};
 use lsp_types::{notification::*, request::*, *};
+use rustc_hash::FxHashMap;
 use salsa::ParallelDatabase;
 use serde::Serialize;
 use threadpool::ThreadPool;
 
 use crate::{
-    client::send_request,
+    client::{send_notification, send_request},
     db::*,
     dispatch::{NotificationDispatcher, RequestDispatcher},
     distro::Distribution,
     features::{
         find_all_references, find_document_highlights, find_document_links, find_document_symbols,
         find_foldings, find_hover, find_workspace_symbols, format_source_code, goto_definition,
-        prepare_rename_all, rename_all, BuildEngine, BuildParams, BuildResult, BuildStatus,
-        FeatureRequest, ForwardSearchResult, ForwardSearchStatus,
+        lint_with_chktex, prepare_rename_all, rename_all, BuildEngine, BuildParams, BuildResult,
+        BuildStatus, FeatureRequest, ForwardSearchResult, ForwardSearchStatus,
     },
     req_queue::{IncomingData, ReqQueue},
     DocumentLanguage, LineIndex, LineIndexExt, Options,
@@ -29,8 +30,9 @@ use crate::{
 
 #[derive(Debug)]
 enum InternalMessage {
-    SetDistro(Distribution),
-    SetOptions(Options),
+    DistroDetected(Distribution),
+    OptionsChanged(Options),
+    ChktexFinished(Document, Vec<Diagnostic>),
 }
 
 #[derive(Clone)]
@@ -38,8 +40,6 @@ struct SharedState {
     connection: Arc<Connection>,
     internal_tx: Sender<InternalMessage>,
     req_queue: Arc<Mutex<ReqQueue>>,
-    // static_debouncer: Arc<DiagnosticsDebouncer>,
-    // chktex_debouncer: Arc<DiagnosticsDebouncer>,
     pool: Arc<Mutex<ThreadPool>>,
     build_engine: Arc<BuildEngine>,
 }
@@ -48,98 +48,6 @@ impl SharedState {
     pub fn spawn(&self, job: impl FnOnce(Self) + Send + 'static) {
         let state = self.clone();
         self.pool.lock().unwrap().execute(move || job(state));
-    }
-
-    pub fn register_file_watching(&self, db: &salsa::Snapshot<RootDatabase>) {
-        if db.has_file_watching_support() {
-            let options = DidChangeWatchedFilesRegistrationOptions {
-                watchers: vec![FileSystemWatcher {
-                    glob_pattern: "**/*.{aux,log}".into(),
-                    kind: Some(WatchKind::Create | WatchKind::Change | WatchKind::Delete),
-                }],
-            };
-
-            let reg = Registration {
-                id: "build-watch".to_string(),
-                method: DidChangeWatchedFiles::METHOD.to_string(),
-                register_options: Some(serde_json::to_value(options).unwrap()),
-            };
-
-            let params = RegistrationParams {
-                registrations: vec![reg],
-            };
-
-            if let Err(why) =
-                send_request::<RegisterCapability>(&self.req_queue, &self.connection.sender, params)
-            {
-                error!(
-                    "Failed to register \"{}\" notification: {}",
-                    DidChangeWatchedFiles::METHOD,
-                    why
-                );
-            }
-        }
-    }
-
-    pub fn register_config_capability(&self, db: &salsa::Snapshot<RootDatabase>) {
-        if db.has_push_configuration_support() {
-            let reg = Registration {
-                id: "push-config".to_string(),
-                method: DidChangeConfiguration::METHOD.to_string(),
-                register_options: None,
-            };
-
-            let params = RegistrationParams {
-                registrations: vec![reg],
-            };
-
-            if let Err(why) =
-                send_request::<RegisterCapability>(&self.req_queue, &self.connection.sender, params)
-            {
-                error!(
-                    "Failed to register \"{}\" notification: {}",
-                    DidChangeConfiguration::METHOD,
-                    why
-                );
-            }
-        }
-    }
-
-    pub fn pull_config(&self, db: &salsa::Snapshot<RootDatabase>) {
-        if !db.has_pull_configuration_support() {
-            return;
-        }
-
-        let params = ConfigurationParams {
-            items: vec![ConfigurationItem {
-                section: Some("texlab".to_string()),
-                scope_uri: None,
-            }],
-        };
-
-        match send_request::<WorkspaceConfiguration>(
-            &self.req_queue,
-            &self.connection.sender,
-            params,
-        ) {
-            Ok(mut json) => {
-                let value = json.pop().expect("invalid configuration request");
-                let options = match serde_json::from_value(value) {
-                    Ok(new_options) => new_options,
-                    Err(why) => {
-                        warn!("Invalid configuration section \"texlab\": {}", why);
-                        Options::default()
-                    }
-                };
-
-                self.internal_tx
-                    .send(InternalMessage::SetOptions(options))
-                    .unwrap();
-            }
-            Err(why) => {
-                error!("Retrieving configuration failed: {}", why);
-            }
-        };
     }
 
     pub fn register_incoming_request(&self, id: RequestId) {
@@ -156,6 +64,7 @@ pub struct Server {
     internal_rx: Receiver<InternalMessage>,
     db: RootDatabase,
     load_resolver: bool,
+    chktex_diags: FxHashMap<Document, Vec<Diagnostic>>,
 }
 
 impl Server {
@@ -168,23 +77,12 @@ impl Server {
         let mut db = RootDatabase::default();
         db.set_current_directory(Arc::new(current_dir));
 
-        // let diag_manager = Arc::new(Mutex::new(DiagnosticsManager::default()));
-
-        // let static_debouncer = Arc::new(create_static_debouncer(
-        //     Arc::clone(&diag_manager),
-        //     &connection,
-        // ));
-
-        // let chktex_debouncer = Arc::new(create_chktex_debouncer(diag_manager, &connection));
-
         let (internal_tx, internal_rx) = crossbeam_channel::unbounded();
 
         let state = SharedState {
             connection: Arc::new(connection),
             internal_tx,
             req_queue,
-            // static_debouncer,
-            // chktex_debouncer,
             pool: Arc::new(Mutex::new(threadpool::Builder::new().build())),
             build_engine: Arc::default(),
         };
@@ -194,6 +92,7 @@ impl Server {
             internal_rx,
             db,
             load_resolver,
+            chktex_diags: FxHashMap::default(),
         })
     }
 
@@ -245,11 +144,14 @@ impl Server {
 
     fn initialize(&mut self) -> Result<()> {
         let (id, params) = self.state.connection.initialize_start()?;
-        let params: InitializeParams = serde_json::from_value(params)?;
+        let InitializeParams {
+            capabilities,
+            client_info,
+            ..
+        } = serde_json::from_value(params)?;
 
-        self.db
-            .set_client_capabilities(Arc::new(params.capabilities));
-        self.db.set_client_info(params.client_info.map(Arc::new));
+        self.db.set_client_capabilities(Arc::new(capabilities));
+        self.db.set_client_info(client_info.map(Arc::new));
 
         let result = InitializeResult {
             capabilities: self.capabilities(),
@@ -263,49 +165,125 @@ impl Server {
             .initialize_finish(id, serde_json::to_value(result)?)?;
 
         if self.load_resolver {
-            self.state.spawn(move |server| {
+            self.state.spawn(move |state| {
                 let distro = Distribution::detect();
                 info!("Detected distribution: {}", distro.kind);
 
-                server
+                state
                     .internal_tx
-                    .send(InternalMessage::SetDistro(distro))
+                    .send(InternalMessage::DistroDetected(distro))
                     .unwrap();
             });
         }
 
-        // self.register_diagnostics_handler();
-
-        let db = self.db.snapshot();
-        self.state.spawn(move |state| {
-            state.register_config_capability(&db);
-            state.register_file_watching(&db);
-            state.pull_config(&db);
-        });
-
+        self.register_config_capability();
+        self.register_file_watching();
+        self.pull_config();
         Ok(())
     }
 
-    // fn register_diagnostics_handler(&mut self) {
-    //     let (event_sender, event_receiver) = crossbeam_channel::unbounded();
-    //     let diag_sender = self.state.static_debouncer.sender.clone();
-    //     std::thread::spawn(move || {
-    //         for event in event_receiver {
-    //             match event {
-    //                 WorkspaceEvent::Changed(workspace, document) => {
-    //                     let message = DiagnosticsMessage::Analyze {
-    //                         workspace,
-    //                         document,
-    //                     };
+    fn register_config_capability(&self) {
+        if self.db.has_push_configuration_support() {
+            self.state.spawn(move |state| {
+                let reg = Registration {
+                    id: "push-config".to_string(),
+                    method: DidChangeConfiguration::METHOD.to_string(),
+                    register_options: None,
+                };
 
-    //                     diag_sender.send(message).unwrap();
-    //                 }
-    //             };
-    //         }
-    //     });
+                let params = RegistrationParams {
+                    registrations: vec![reg],
+                };
 
-    //     self.workspace.listeners.push_back(event_sender);
-    // }
+                if let Err(why) = send_request::<RegisterCapability>(
+                    &state.req_queue,
+                    &state.connection.sender,
+                    params,
+                ) {
+                    error!(
+                        "Failed to register \"{}\" notification: {}",
+                        DidChangeConfiguration::METHOD,
+                        why
+                    );
+                }
+            });
+        }
+    }
+
+    fn register_file_watching(&self) {
+        if self.db.has_file_watching_support() {
+            self.state.spawn(move |state| {
+                let options = DidChangeWatchedFilesRegistrationOptions {
+                    watchers: vec![FileSystemWatcher {
+                        glob_pattern: "**/*.{aux,log}".into(),
+                        kind: Some(WatchKind::Create | WatchKind::Change | WatchKind::Delete),
+                    }],
+                };
+
+                let reg = Registration {
+                    id: "build-watch".to_string(),
+                    method: DidChangeWatchedFiles::METHOD.to_string(),
+                    register_options: Some(serde_json::to_value(options).unwrap()),
+                };
+
+                let params = RegistrationParams {
+                    registrations: vec![reg],
+                };
+
+                if let Err(why) = send_request::<RegisterCapability>(
+                    &state.req_queue,
+                    &state.connection.sender,
+                    params,
+                ) {
+                    error!(
+                        "Failed to register \"{}\" notification: {}",
+                        DidChangeWatchedFiles::METHOD,
+                        why
+                    );
+                }
+            });
+        }
+    }
+
+    fn pull_config(&self) {
+        if !self.db.has_pull_configuration_support() {
+            return;
+        }
+
+        self.state.spawn(move |state| {
+            let params = ConfigurationParams {
+                items: vec![ConfigurationItem {
+                    section: Some("texlab".to_string()),
+                    scope_uri: None,
+                }],
+            };
+
+            match send_request::<WorkspaceConfiguration>(
+                &state.req_queue,
+                &state.connection.sender,
+                params,
+            ) {
+                Ok(mut json) => {
+                    let value = json.pop().expect("invalid configuration request");
+                    let options = match serde_json::from_value(value) {
+                        Ok(new_options) => new_options,
+                        Err(why) => {
+                            warn!("Invalid configuration section \"texlab\": {}", why);
+                            Options::default()
+                        }
+                    };
+
+                    state
+                        .internal_tx
+                        .send(InternalMessage::OptionsChanged(options))
+                        .unwrap();
+                }
+                Err(why) => {
+                    error!("Retrieving configuration failed: {}", why);
+                }
+            };
+        });
+    }
 
     fn cancel(&self, params: CancelParams) -> Result<()> {
         let id = match params.id {
@@ -340,15 +318,13 @@ impl Server {
             }
         }
 
+        self.publish_diagnostics()?;
         Ok(())
     }
 
     fn did_change_configuration(&mut self, params: DidChangeConfigurationParams) -> Result<()> {
         if self.db.has_pull_configuration_support() {
-            let db = self.db.snapshot();
-            self.state.spawn(move |state| {
-                state.pull_config(&db);
-            });
+            self.pull_config();
         } else {
             match serde_json::from_value(params.settings) {
                 Ok(options) => {
@@ -375,15 +351,11 @@ impl Server {
         self.db
             .set_visibility(document, DocumentVisibility::Visible);
 
-        // if self.workspace.environment.options.chktex.on_open_and_save {
-        //     self.state
-        //         .chktex_debouncer
-        //         .sender
-        //         .send(DiagnosticsMessage::Analyze {
-        //             workspace: self.workspace.clone(),
-        //             document,
-        //         })?;
-        // }
+        if self.db.client_options().chktex.on_open_and_save {
+            self.run_chktex(document);
+        }
+
+        self.publish_diagnostics()?;
 
         Ok(())
     }
@@ -399,14 +371,6 @@ impl Server {
             let new_text = Arc::new(new_text);
             self.db.set_source_code(document, Arc::clone(&new_text));
 
-            // let language = old_document.data.language();
-            // let new_document =
-            //     self.workspace
-            //         .open(Arc::clone(&uri), Arc::new(source_code), language)?;
-            // self.workspace
-            //     .viewport
-            //     .insert(Arc::clone(&new_document.uri));
-
             self.state.build_engine.positions_by_uri.insert(
                 document.lookup(&self.db).uri,
                 Position::new(
@@ -419,15 +383,9 @@ impl Server {
                 ),
             );
 
-            // if self.workspace.environment.options.chktex.on_edit {
-            //     self.state
-            //         .chktex_debouncer
-            //         .sender
-            //         .send(DiagnosticsMessage::Analyze {
-            //             workspace: self.workspace.clone(),
-            //             document: new_document,
-            //         })?;
-            // };
+            if self.db.client_options().chktex.on_edit {
+                self.run_chktex(document);
+            }
         } else {
             let uri = document.lookup(&self.db).uri;
             if uri.scheme() == "file" {
@@ -437,6 +395,7 @@ impl Server {
             }
         }
 
+        self.publish_diagnostics()?;
         Ok(())
     }
 
@@ -470,21 +429,12 @@ impl Server {
             });
         }
 
-        // if let Some(document) = self
-        //     .workspace
-        //     .documents_by_uri
-        //     .get(&uri)
-        //     .filter(|_| self.workspace.environment.options.chktex.on_open_and_save)
-        //     .cloned()
-        // {
-        //     self.state
-        //         .chktex_debouncer
-        //         .sender
-        //         .send(DiagnosticsMessage::Analyze {
-        //             workspace: self.workspace.clone(),
-        //             document,
-        //         })?;
-        // };
+        if self.db.all_documents().contains(&document)
+            && self.db.client_options().chktex.on_open_and_save
+        {
+            self.run_chktex(document);
+        }
+
         Ok(())
     }
 
@@ -495,6 +445,82 @@ impl Server {
 
         self.db.set_visibility(document, DocumentVisibility::Hidden);
         Ok(())
+    }
+
+    fn publish_diagnostics(&self) -> Result<()> {
+        let mut diag_map: FxHashMap<Document, Vec<Diagnostic>> = FxHashMap::default();
+        for document in self
+            .db
+            .all_documents()
+            .into_iter()
+            .filter(|document| self.db.visibility(*document) == DocumentVisibility::Visible)
+        {
+            for (document, diags) in self.db.diagnostics(document) {
+                diag_map
+                    .entry(document)
+                    .or_default()
+                    .extend(diags.into_iter());
+            }
+        }
+
+        for (document, diags) in &self.chktex_diags {
+            if self.db.visibility(*document) == DocumentVisibility::Visible {
+                diag_map
+                    .entry(*document)
+                    .or_default()
+                    .extend(diags.iter().cloned());
+            }
+        }
+
+        for document in self.db.all_documents().into_iter() {
+            let diagnostics = diag_map.remove(&document).unwrap_or_default();
+
+            let uri = self
+                .db
+                .lookup_intern_document(document)
+                .uri
+                .as_ref()
+                .clone();
+
+            let params = PublishDiagnosticsParams {
+                uri,
+                version: None,
+                diagnostics,
+            };
+
+            send_notification::<PublishDiagnostics>(&self.state.connection.sender, params)?;
+        }
+
+        Ok(())
+    }
+
+    fn run_chktex(&self, document: Document) {
+        if self.db.language(document) == DocumentLanguage::Latex {
+            let text = self.db.source_code(document);
+
+            let current_dir = self
+                .db
+                .root_directory()
+                .as_deref()
+                .cloned()
+                .or_else(|| {
+                    let uri = self.db.lookup_intern_document(document).uri;
+                    if uri.scheme() == "file" {
+                        uri.to_file_path().unwrap().parent().map(ToOwned::to_owned)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| ".".into());
+
+            self.state.spawn(move |state| {
+                let diags = lint_with_chktex(&text, &current_dir).unwrap_or_default();
+                state
+                    .internal_tx
+                    .send(InternalMessage::ChktexFinished(document, diags))
+                    .unwrap();
+            });
+        }
     }
 
     fn handle_feature_request<P, R, H>(
@@ -812,12 +838,16 @@ impl Server {
                 },
                 recv(&self.internal_rx) -> msg => {
                     match msg? {
-                        InternalMessage::SetDistro(distro) => {
+                        InternalMessage::DistroDetected(distro) => {
                             self.db.set_distro_kind(distro.kind);
                             self.db.set_distro_resolver(Arc::new(distro.resolver));
                         }
-                        InternalMessage::SetOptions(options) => {
+                        InternalMessage::OptionsChanged(options) => {
                             self.db.set_client_options(Arc::new(options));
+                        }
+                        InternalMessage::ChktexFinished(document, diags) => {
+                            self.chktex_diags.insert(document, diags);
+                            self.publish_diagnostics()?;
                         }
                     };
                 }
@@ -828,63 +858,10 @@ impl Server {
     pub fn run(mut self) -> Result<()> {
         self.initialize()?;
         self.process_messages()?;
-        // drop(self.state.static_debouncer);
-        // drop(self.state.chktex_debouncer);
         self.state.pool.lock().unwrap().join();
         Ok(())
     }
 }
-
-// fn create_static_debouncer(
-//     manager: Arc<Mutex<DiagnosticsManager>>,
-//     conn: &Connection,
-// ) -> DiagnosticsDebouncer {
-//     let sender = conn.sender.clone();
-//     DiagnosticsDebouncer::launch(move |workspace, document| {
-//         let mut manager = manager.lock().unwrap();
-//         manager.update_static(&workspace, Arc::clone(&document.uri));
-//         if let Err(why) = publish_diagnostics(&sender, &workspace, &manager) {
-//             warn!("Failed to publish diagnostics: {}", why);
-//         }
-//     })
-// }
-
-// fn create_chktex_debouncer(
-//     manager: Arc<Mutex<DiagnosticsManager>>,
-//     conn: &Connection,
-// ) -> DiagnosticsDebouncer {
-//     let sender = conn.sender.clone();
-//     DiagnosticsDebouncer::launch(move |workspace, document| {
-//         let mut manager = manager.lock().unwrap();
-//         manager.update_chktex(
-//             &workspace,
-//             Arc::clone(&document.uri),
-//             &workspace.environment.options,
-//         );
-//         if let Err(why) = publish_diagnostics(&sender, &workspace, &manager) {
-//             warn!("Failed to publish diagnostics: {}", why);
-//         }
-//     })
-// }
-
-// fn publish_diagnostics(
-//     sender: &Sender<lsp_server::Message>,
-//     workspace: &Workspace,
-//     diag_manager: &DiagnosticsManager,
-// ) -> Result<()> {
-//     for document in workspace.documents_by_uri.values() {
-//         let diagnostics = diag_manager.publish(Arc::clone(&document.uri));
-//         send_notification::<PublishDiagnostics>(
-//             sender,
-//             PublishDiagnosticsParams {
-//                 uri: document.uri.as_ref().clone(),
-//                 version: None,
-//                 diagnostics,
-//             },
-//         )?;
-//     }
-//     Ok(())
-// }
 
 fn apply_document_edit(old_text: &mut String, changes: Vec<TextDocumentContentChangeEvent>) {
     for change in changes {
