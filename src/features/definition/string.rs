@@ -1,14 +1,22 @@
 use lsp_types::{GotoDefinitionParams, LocationLink};
 use rowan::ast::AstNode;
 
-use crate::{features::cursor::CursorContext, syntax::bibtex, LineIndexExt};
+use crate::{
+    db::{DocumentDatabase, SyntaxDatabase},
+    features::cursor::CursorContext,
+    syntax::bibtex,
+    LineIndexExt,
+};
 
 pub fn goto_string_definition(
     context: &CursorContext<GotoDefinitionParams>,
 ) -> Option<Vec<LocationLink>> {
-    let main_document = context.request.main_document();
+    let green = context
+        .request
+        .db
+        .syntax_tree(context.request.document)
+        .into_bibtex()?;
 
-    let data = main_document.data.as_bibtex()?;
     let name = context
         .cursor
         .as_bibtex()
@@ -16,23 +24,35 @@ pub fn goto_string_definition(
 
     bibtex::Token::cast(name.parent()?)?;
 
-    let origin_selection_range = main_document
-        .line_index
+    let origin_selection_range = context
+        .request
+        .db
+        .line_index(context.request.document)
         .line_col_lsp_range(name.text_range());
 
-    for string in bibtex::SyntaxNode::new_root(data.green.clone())
+    for string in bibtex::SyntaxNode::new_root(green)
         .children()
         .filter_map(bibtex::String::cast)
     {
         if let Some(string_name) = string.name().filter(|n| n.text() == name.text()) {
             return Some(vec![LocationLink {
                 origin_selection_range: Some(origin_selection_range),
-                target_uri: main_document.uri.as_ref().clone(),
-                target_selection_range: main_document
-                    .line_index
+                target_uri: context
+                    .request
+                    .db
+                    .lookup_intern_document(context.request.document)
+                    .uri
+                    .as_ref()
+                    .clone(),
+                target_selection_range: context
+                    .request
+                    .db
+                    .line_index(context.request.document)
                     .line_col_lsp_range(string_name.text_range()),
-                target_range: main_document
-                    .line_index
+                target_range: context
+                    .request
+                    .db
+                    .line_index(context.request.document)
                     .line_col_lsp_range(bibtex::small_range(&string)),
             }]);
         }

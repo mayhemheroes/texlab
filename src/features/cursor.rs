@@ -5,8 +5,9 @@ use lsp_types::{
 use rowan::{ast::AstNode, TextRange, TextSize};
 
 use crate::{
+    db::{DocumentDatabase, SyntaxDatabase, SyntaxTree},
     syntax::{bibtex, latex},
-    DocumentData, LineIndexExt,
+    LineIndexExt,
 };
 
 use super::FeatureRequest;
@@ -121,33 +122,33 @@ impl Cursor {
     }
 }
 
-pub struct CursorContext<P> {
-    pub request: FeatureRequest<P>,
+pub struct CursorContext<'a, P> {
+    pub request: FeatureRequest<'a, P>,
     pub cursor: Cursor,
     pub offset: TextSize,
 }
 
-impl<P: HasPosition> CursorContext<P> {
-    pub fn new(request: FeatureRequest<P>) -> Self {
-        let main_document = request.main_document();
-        let offset = main_document
-            .line_index
+impl<'a, P: HasPosition> CursorContext<'a, P> {
+    pub fn new(request: FeatureRequest<'a, P>) -> Self {
+        let offset = request
+            .db
+            .line_index(request.document)
             .offset_lsp(request.params.position());
 
-        let cursor = match &main_document.data {
-            DocumentData::Latex(data) => {
-                let root = latex::SyntaxNode::new_root(data.green.clone());
+        let cursor = match request.db.syntax_tree(request.document) {
+            SyntaxTree::Latex(green) => {
+                let root = latex::SyntaxNode::new_root(green);
                 let left = root.token_at_offset(offset).left_biased();
                 let right = root.token_at_offset(offset).right_biased();
                 Cursor::new_latex(left, right)
             }
-            DocumentData::Bibtex(data) => {
-                let root = bibtex::SyntaxNode::new_root(data.green.clone());
+            SyntaxTree::Bibtex(green) => {
+                let root = bibtex::SyntaxNode::new_root(green);
                 let left = root.token_at_offset(offset).left_biased();
                 let right = root.token_at_offset(offset).right_biased();
                 Cursor::new_bibtex(left, right)
             }
-            DocumentData::BuildLog(_) => None,
+            SyntaxTree::BuildLog(_) => None,
         };
 
         Self {

@@ -2,6 +2,7 @@ use lsp_types::CompletionParams;
 use rowan::{ast::AstNode, TextRange};
 
 use crate::{
+    db::{SyntaxDatabase, SyntaxTree, WorkspaceDatabase},
     features::{cursor::CursorContext, lsp_kinds::Structure},
     render_label,
     syntax::latex,
@@ -16,9 +17,14 @@ pub fn complete_labels<'a>(
 ) -> Option<()> {
     let (range, is_math) = find_reference(context).or_else(|| find_reference_range(context))?;
 
-    for document in context.request.workspace.documents_by_uri.values() {
-        if let Some(data) = document.data.as_latex() {
-            for label in latex::SyntaxNode::new_root(data.green.clone())
+    let unit = context
+        .request
+        .db
+        .compilation_unit(context.request.document);
+
+    for document in unit.iter().copied() {
+        if let SyntaxTree::Latex(green) = context.request.db.syntax_tree(document) {
+            for label in latex::SyntaxNode::new_root(green)
                 .descendants()
                 .filter_map(latex::LabelDefinition::cast)
             {
@@ -27,7 +33,7 @@ pub fn complete_labels<'a>(
                     .and_then(|name| name.key())
                     .map(|name| name.to_string())
                 {
-                    match render_label(&context.request.workspace, &name, Some(label)) {
+                    match render_label(context.request.db, &unit, &name, Some(label)) {
                         Some(rendered_label) => {
                             let kind = match &rendered_label.object {
                                 LabelledObject::Section { .. } => Structure::Section,

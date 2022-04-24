@@ -1,17 +1,16 @@
-use std::sync::Arc;
-
 use lsp_types::CompletionParams;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use rowan::{ast::AstNode, TextRange};
 
 use crate::{
+    db::{Document, DocumentDatabase, RootDatabase, SyntaxDatabase, SyntaxTree, WorkspaceDatabase},
     features::{cursor::CursorContext, lsp_kinds::Structure},
     syntax::{
         bibtex::{self, HasType},
         latex,
     },
-    BibtexEntryTypeCategory, Document, LANGUAGE_DATA,
+    BibtexEntryTypeCategory, LANGUAGE_DATA,
 };
 
 use super::types::{InternalCompletionItem, InternalCompletionItemData};
@@ -36,13 +35,17 @@ pub fn complete_citations<'a>(
     };
 
     check_citation(context).or_else(|| check_acronym(context))?;
-    for document in context.request.workspace.documents_by_uri.values() {
-        if let Some(data) = document.data.as_bibtex() {
-            for entry in bibtex::SyntaxNode::new_root(data.green.clone())
+    for document in context
+        .request
+        .db
+        .compilation_unit(context.request.document)
+    {
+        if let SyntaxTree::Bibtex(green) = context.request.db.syntax_tree(document) {
+            for entry in bibtex::SyntaxNode::new_root(green)
                 .children()
                 .filter_map(bibtex::Entry::cast)
             {
-                if let Some(item) = make_item(document, entry, range) {
+                if let Some(item) = make_item(context.request.db, document, entry, range) {
                     items.push(item);
                 }
             }
@@ -71,7 +74,8 @@ fn check_acronym(context: &CursorContext<CompletionParams>) -> Option<()> {
 }
 
 fn make_item(
-    document: &Document,
+    db: &RootDatabase,
+    document: Document,
     entry: bibtex::Entry,
     range: TextRange,
 ) -> Option<InternalCompletionItem> {
@@ -100,7 +104,7 @@ fn make_item(
     Some(InternalCompletionItem::new(
         range,
         InternalCompletionItemData::Citation {
-            uri: Arc::clone(&document.uri),
+            uri: db.lookup_intern_document(document).uri,
             key,
             text,
             ty,

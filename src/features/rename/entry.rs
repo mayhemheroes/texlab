@@ -4,9 +4,10 @@ use lsp_types::{Range, RenameParams, TextEdit, WorkspaceEdit};
 use rowan::ast::AstNode;
 
 use crate::{
+    db::{DocumentDatabase, SyntaxDatabase, SyntaxTree, WorkspaceDatabase},
     features::cursor::{CursorContext, HasPosition},
     syntax::{bibtex, latex},
-    DocumentData, LineIndexExt,
+    LineIndexExt,
 };
 
 pub fn prepare_entry_rename<P: HasPosition>(context: &CursorContext<P>) -> Option<Range> {
@@ -17,8 +18,8 @@ pub fn prepare_entry_rename<P: HasPosition>(context: &CursorContext<P>) -> Optio
     Some(
         context
             .request
-            .main_document()
-            .line_index
+            .db
+            .line_index(context.request.document)
             .line_col_lsp_range(range),
     )
 }
@@ -30,40 +31,66 @@ pub fn rename_entry(context: &CursorContext<RenameParams>) -> Option<WorkspaceEd
         .or_else(|| context.find_entry_key())?;
 
     let mut changes = HashMap::new();
-    for document in context.request.workspace.documents_by_uri.values() {
-        match &document.data {
-            DocumentData::Latex(data) => {
-                let edits: Vec<_> = latex::SyntaxNode::new_root(data.green.clone())
+    for document in context
+        .request
+        .db
+        .compilation_unit(context.request.document)
+    {
+        match context.request.db.syntax_tree(document) {
+            SyntaxTree::Latex(green) => {
+                let edits: Vec<_> = latex::SyntaxNode::new_root(green)
                     .descendants()
                     .filter_map(latex::Citation::cast)
                     .filter_map(|citation| citation.key_list())
                     .flat_map(|keys| keys.keys())
                     .filter(|key| key.to_string() == key_text)
                     .map(|key| {
-                        document
-                            .line_index
+                        context
+                            .request
+                            .db
+                            .line_index(document)
                             .line_col_lsp_range(latex::small_range(&key))
                     })
                     .map(|range| TextEdit::new(range, context.request.params.new_name.clone()))
                     .collect();
-                changes.insert(document.uri.as_ref().clone(), edits);
+                changes.insert(
+                    context
+                        .request
+                        .db
+                        .lookup_intern_document(document)
+                        .uri
+                        .as_ref()
+                        .clone(),
+                    edits,
+                );
             }
-            DocumentData::Bibtex(data) => {
-                let edits: Vec<_> = bibtex::SyntaxNode::new_root(data.green.clone())
+            SyntaxTree::Bibtex(green) => {
+                let edits: Vec<_> = bibtex::SyntaxNode::new_root(green)
                     .descendants()
                     .filter_map(bibtex::Entry::cast)
                     .filter_map(|entry| entry.key())
                     .filter(|key| key.to_string() == key_text)
                     .map(|key| {
-                        document
-                            .line_index
+                        context
+                            .request
+                            .db
+                            .line_index(document)
                             .line_col_lsp_range(bibtex::small_range(&key))
                     })
                     .map(|range| TextEdit::new(range, context.request.params.new_name.clone()))
                     .collect();
-                changes.insert(document.uri.as_ref().clone(), edits);
+                changes.insert(
+                    context
+                        .request
+                        .db
+                        .lookup_intern_document(document)
+                        .uri
+                        .as_ref()
+                        .clone(),
+                    edits,
+                );
             }
-            DocumentData::BuildLog(_) => {}
+            SyntaxTree::BuildLog(_) => {}
         }
     }
 

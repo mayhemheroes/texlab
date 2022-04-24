@@ -1,11 +1,19 @@
 use lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind};
 use rowan::ast::AstNode;
 
-use crate::{features::cursor::CursorContext, syntax::bibtex, LineIndexExt};
+use crate::{
+    db::{DocumentDatabase, SyntaxDatabase},
+    features::cursor::CursorContext,
+    syntax::bibtex,
+    LineIndexExt,
+};
 
 pub fn find_string_reference_hover(context: &CursorContext<HoverParams>) -> Option<Hover> {
-    let main_document = context.request.main_document();
-    let data = main_document.data.as_bibtex()?;
+    let green = context
+        .request
+        .db
+        .syntax_tree(context.request.document)
+        .into_bibtex()?;
 
     let name = context
         .cursor
@@ -18,7 +26,7 @@ pub fn find_string_reference_hover(context: &CursorContext<HoverParams>) -> Opti
             )
         })?;
 
-    for string in bibtex::SyntaxNode::new_root(data.green.clone())
+    for string in bibtex::SyntaxNode::new_root(green)
         .children()
         .filter_map(bibtex::String::cast)
     {
@@ -26,8 +34,10 @@ pub fn find_string_reference_hover(context: &CursorContext<HoverParams>) -> Opti
             let value = string.value()?.syntax().text().to_string();
             return Some(Hover {
                 range: Some(
-                    main_document
-                        .line_index
+                    context
+                        .request
+                        .db
+                        .line_index(context.request.document)
                         .line_col_lsp_range(name.text_range()),
                 ),
                 contents: HoverContents::Markup(MarkupContent {

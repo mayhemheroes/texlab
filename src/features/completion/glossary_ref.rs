@@ -1,7 +1,11 @@
 use lsp_types::CompletionParams;
 use rowan::ast::AstNode;
 
-use crate::{features::cursor::CursorContext, syntax::latex};
+use crate::{
+    db::{SyntaxDatabase, SyntaxTree, WorkspaceDatabase},
+    features::cursor::CursorContext,
+    syntax::latex,
+};
 
 use super::types::{InternalCompletionItem, InternalCompletionItemData};
 
@@ -12,9 +16,13 @@ pub fn complete_glossary_entries<'a>(
     let (_, range, group) = context.find_curly_group_word()?;
     latex::GlossaryEntryReference::cast(group.syntax().parent()?)?;
 
-    for document in context.request.workspace.documents_by_uri.values() {
-        if let Some(data) = document.data.as_latex() {
-            for node in latex::SyntaxNode::new_root(data.green.clone()).descendants() {
+    for document in context
+        .request
+        .db
+        .compilation_unit(context.request.document)
+    {
+        if let SyntaxTree::Latex(green) = context.request.db.syntax_tree(document) {
+            for node in latex::SyntaxNode::new_root(green).descendants() {
                 if let Some(name) = latex::GlossaryEntryDefinition::cast(node.clone())
                     .and_then(|entry| entry.name())
                     .and_then(|name| name.key())

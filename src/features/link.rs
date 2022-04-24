@@ -1,34 +1,44 @@
 use lsp_types::{DocumentLink, DocumentLinkParams};
 
-use crate::LineIndexExt;
+use crate::{
+    db::{AnalysisDatabase, DocumentData, DocumentDatabase},
+    LineIndexExt,
+};
 
 use super::FeatureRequest;
 
 pub fn find_document_links(request: FeatureRequest<DocumentLinkParams>) -> Vec<DocumentLink> {
     let mut links = Vec::new();
-    let main_document = request.main_document();
-    if let Some(data) = main_document.data.as_latex() {
-        for include in &data.extras.explicit_links {
-            for target in &include.targets {
-                if request
-                    .workspace
-                    .documents_by_uri
-                    .values()
-                    .any(|document| document.uri.as_ref() == target.as_ref())
-                {
-                    links.push(DocumentLink {
-                        range: main_document
-                            .line_index
-                            .line_col_lsp_range(include.stem_range),
-                        target: Some(target.as_ref().clone()),
-                        tooltip: None,
-                        data: None,
-                    });
-                    break;
-                }
+
+    for include in &request.db.extras(request.document).explicit_links {
+        for target in include
+            .targets
+            .iter()
+            .cloned()
+            .map(|uri| request.db.intern_document(DocumentData { uri }))
+        {
+            if request.db.all_documents().contains(&target) {
+                links.push(DocumentLink {
+                    range: request
+                        .db
+                        .line_index(request.document)
+                        .line_col_lsp_range(include.stem_range),
+                    target: Some(
+                        request
+                            .db
+                            .lookup_intern_document(target)
+                            .uri
+                            .as_ref()
+                            .clone(),
+                    ),
+                    tooltip: None,
+                    data: None,
+                });
+                break;
             }
         }
     }
+
     links
 }
 

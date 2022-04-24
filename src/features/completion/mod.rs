@@ -31,6 +31,7 @@ use rowan::{ast::AstNode, TextSize};
 use rustc_hash::FxHashSet;
 
 use crate::{
+    db::{ClientCapabilitiesDatabase, ClientInfoDatabase, DocumentDatabase, KnownClient},
     syntax::{bibtex, latex},
     LineIndexExt,
 };
@@ -112,15 +113,7 @@ pub fn complete(request: FeatureRequest<CompletionParams>) -> Option<CompletionL
         .map(|(i, item)| append_sort_text(item, i))
         .collect();
 
-    let is_incomplete = if context
-        .request
-        .workspace
-        .environment
-        .client_info
-        .as_ref()
-        .as_ref()
-        .map_or(false, |info| info.name.as_str() == "Visual Studio Code")
-    {
+    let is_incomplete = if context.request.db.client_kind() == KnownClient::Code {
         true
     } else {
         items.len() >= COMPLETION_LIMIT
@@ -253,8 +246,8 @@ fn convert_internal_items(
 ) -> CompletionItem {
     let range = context
         .request
-        .main_document()
-        .line_index
+        .db
+        .line_index(context.request.document)
         .line_col_lsp_range(item.range);
 
     let mut new_item = match item.data {
@@ -308,18 +301,7 @@ fn convert_internal_items(
             }
         }
         InternalCompletionItemData::BeginCommand => {
-            if context
-                .request
-                .workspace
-                .environment
-                .client_capabilities
-                .text_document
-                .as_ref()
-                .and_then(|cap| cap.completion.as_ref())
-                .and_then(|cap| cap.completion_item.as_ref())
-                .and_then(|cap| cap.snippet_support)
-                == Some(true)
-            {
+            if context.request.db.has_snippet_support() {
                 let text_edit = TextEdit::new(range, "begin{$1}\n\t$0\n\\end{$1}".into());
                 CompletionItem {
                     kind: Some(adjust_kind(

@@ -1,22 +1,34 @@
 use lsp_types::{Hover, HoverContents, HoverParams};
 
 use crate::{
-    component_db::COMPONENT_DATABASE, features::cursor::CursorContext, syntax::latex, LineIndexExt,
+    component_db::COMPONENT_DATABASE,
+    db::{AnalysisDatabase, DocumentDatabase, ExplicitLinkKind},
+    features::cursor::CursorContext,
+    LineIndexExt,
 };
 
 pub fn find_component_hover(context: &CursorContext<HoverParams>) -> Option<Hover> {
-    let main_document = context.request.main_document();
-    let data = main_document.data.as_latex()?;
-    for link in &data.extras.explicit_links {
+    for link in &context
+        .request
+        .db
+        .extras(context.request.document)
+        .explicit_links
+    {
         if matches!(
             link.kind,
-            latex::ExplicitLinkKind::Package | latex::ExplicitLinkKind::Class
+            ExplicitLinkKind::Package | ExplicitLinkKind::Class
         ) && link.stem_range.contains_inclusive(context.offset)
         {
             let docs = COMPONENT_DATABASE.documentation(&link.stem)?;
             return Some(Hover {
                 contents: HoverContents::Markup(docs),
-                range: Some(main_document.line_index.line_col_lsp_range(link.stem_range)),
+                range: Some(
+                    context
+                        .request
+                        .db
+                        .line_index(context.request.document)
+                        .line_col_lsp_range(link.stem_range),
+                ),
             });
         }
     }

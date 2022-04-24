@@ -1,7 +1,12 @@
 use lsp_types::{Location, ReferenceParams};
 use rowan::ast::AstNode;
 
-use crate::{features::cursor::CursorContext, syntax::bibtex, LineIndexExt};
+use crate::{
+    db::{DocumentDatabase, SyntaxDatabase},
+    features::cursor::CursorContext,
+    syntax::bibtex,
+    LineIndexExt,
+};
 
 pub fn find_string_references(
     context: &CursorContext<ReferenceParams>,
@@ -19,9 +24,13 @@ pub fn find_string_references(
         })?
         .text();
 
-    let document = context.request.main_document();
-    let data = document.data.as_bibtex()?;
-    for node in bibtex::SyntaxNode::new_root(data.green.clone()).descendants() {
+    let green = context
+        .request
+        .db
+        .syntax_tree(context.request.document)
+        .into_bibtex()?;
+
+    for node in bibtex::SyntaxNode::new_root(green).descendants() {
         if let Some(name) = bibtex::String::cast(node.clone())
             .and_then(|string| string.name())
             .filter(|name| {
@@ -34,8 +43,18 @@ pub fn find_string_references(
             })
         {
             items.push(Location::new(
-                document.uri.as_ref().clone(),
-                document.line_index.line_col_lsp_range(name.text_range()),
+                context
+                    .request
+                    .db
+                    .lookup_intern_document(context.request.document)
+                    .uri
+                    .as_ref()
+                    .clone(),
+                context
+                    .request
+                    .db
+                    .line_index(context.request.document)
+                    .line_col_lsp_range(name.text_range()),
             ));
         }
     }

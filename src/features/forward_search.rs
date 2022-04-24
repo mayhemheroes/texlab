@@ -9,6 +9,8 @@ use lsp_types::TextDocumentPositionParams;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
+use crate::db::{AnalysisDatabase, ClientOptionsDatabase, DocumentDatabase};
+
 use super::FeatureRequest;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize_repr, Deserialize_repr)]
@@ -28,7 +30,8 @@ pub struct ForwardSearchResult {
 pub fn execute_forward_search(
     request: FeatureRequest<TextDocumentPositionParams>,
 ) -> Option<ForwardSearchResult> {
-    let options = &request.workspace.environment.options.forward_search;
+    let options = request.db.client_options();
+    let options = &options.forward_search;
 
     if options.executable.is_none() || options.args.is_none() {
         return Some(ForwardSearchResult {
@@ -37,34 +40,34 @@ pub fn execute_forward_search(
     }
 
     let root_document = request
-        .workspace
-        .documents_by_uri
-        .values()
+        .db
+        .all_documents()
+        .into_iter()
         .find(|document| {
-            if let Some(data) = document.data.as_latex() {
-                data.extras.has_document_environment
-                    && !data
-                        .extras
-                        .explicit_links
-                        .iter()
-                        .filter_map(|link| link.as_component_name())
-                        .any(|name| name == "subfiles.cls")
-            } else {
-                false
-            }
+            let extras = request.db.extras(*document);
+            extras.has_document_environment
+                && !extras
+                    .explicit_links
+                    .iter()
+                    .filter_map(|link| link.as_component_name())
+                    .any(|name| name == "subfiles.cls")
         })
-        .filter(|document| document.uri.scheme() == "file")?;
+        .filter(|document| request.db.lookup_intern_document(*document).uri.scheme() == "file")?;
 
-    let data = root_document.data.as_latex()?;
-    let pdf_path = data
-        .extras
+    let extras = request.db.extras(root_document);
+    let pdf_path = extras
         .implicit_links
         .pdf
         .iter()
         .filter_map(|uri| uri.to_file_path().ok())
         .find(|path| path.exists())?;
 
-    let tex_path = request.main_document().uri.to_file_path().ok()?;
+    let tex_path = request
+        .db
+        .lookup_intern_document(request.document)
+        .uri
+        .to_file_path()
+        .ok()?;
 
     let args: Vec<String> = options
         .args

@@ -1,6 +1,8 @@
 use lsp_types::CompletionParams;
 
-use crate::{component_db::COMPONENT_DATABASE, features::cursor::CursorContext};
+use crate::{
+    component_db::COMPONENT_DATABASE, db::WorkspaceDatabase, features::cursor::CursorContext,
+};
 
 use super::types::{InternalCompletionItem, InternalCompletionItemData};
 
@@ -10,7 +12,13 @@ pub fn complete_component_environments<'a>(
 ) -> Option<()> {
     let (_, range) = context.find_environment_name()?;
 
-    for component in COMPONENT_DATABASE.linked_components(&context.request.workspace) {
+    for component in COMPONENT_DATABASE.linked_components(
+        context.request.db,
+        context
+            .request
+            .db
+            .compilation_unit(context.request.document),
+    ) {
         for name in &component.environments {
             items.push(InternalCompletionItem::new(
                 range,

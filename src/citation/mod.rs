@@ -74,7 +74,9 @@ fn convert_to_ris(root: &bibtex::SyntaxNode, key: &str) -> Option<RisReference> 
 
     bib_code = bib_code.replace("\\hypen", "-");
 
+    eprintln!("BIB:\n---\n{}\n---", bib_code);
     let ris_code = bibutils::convert(&bib_code, InputFormat::Biblatex, OutputFormat::Ris)?;
+    eprintln!("RIS:\n---\n{}\n---", ris_code);
     let ris_lib = RisLibrary::parse(ris_code.lines());
     ris_lib
         .references

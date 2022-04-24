@@ -1,6 +1,6 @@
 use lsp_types::{Hover, HoverContents, HoverParams, MarkupContent};
 
-use crate::{features::cursor::CursorContext, LineIndexExt, LANGUAGE_DATA};
+use crate::{db::DocumentDatabase, features::cursor::CursorContext, LineIndexExt, LANGUAGE_DATA};
 
 pub fn find_entry_type_hover(context: &CursorContext<HoverParams>) -> Option<Hover> {
     let name = context
@@ -17,8 +17,8 @@ pub fn find_entry_type_hover(context: &CursorContext<HoverParams>) -> Option<Hov
         range: Some(
             context
                 .request
-                .main_document()
-                .line_index
+                .db
+                .line_index(context.request.document)
                 .line_col_lsp_range(name.text_range()),
         ),
     })

@@ -1,6 +1,9 @@
 use lsp_types::CompletionParams;
 
-use crate::features::cursor::CursorContext;
+use crate::{
+    db::{AnalysisDatabase, WorkspaceDatabase},
+    features::cursor::CursorContext,
+};
 
 use super::types::{InternalCompletionItem, InternalCompletionItemData};
 
@@ -10,16 +13,18 @@ pub fn complete_theorem_environments<'a>(
 ) -> Option<()> {
     let (_, range) = context.find_environment_name()?;
 
-    for document in context.request.workspace.documents_by_uri.values() {
-        if let Some(data) = document.data.as_latex() {
-            for environment in &data.extras.theorem_environments {
-                items.push(InternalCompletionItem::new(
-                    range,
-                    InternalCompletionItemData::UserEnvironment {
-                        name: environment.name.clone(),
-                    },
-                ));
-            }
+    for document in context
+        .request
+        .db
+        .compilation_unit(context.request.document)
+    {
+        for environment in &context.request.db.extras(document).theorem_environments {
+            items.push(InternalCompletionItem::new(
+                range,
+                InternalCompletionItemData::UserEnvironment {
+                    name: environment.name.clone(),
+                },
+            ));
         }
     }
 

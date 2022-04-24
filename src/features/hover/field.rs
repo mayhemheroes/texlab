@@ -1,11 +1,12 @@
 use lsp_types::{Hover, HoverContents, HoverParams, MarkupContent};
 use rowan::ast::AstNode;
 
-use crate::{features::cursor::CursorContext, syntax::bibtex, LineIndexExt, LANGUAGE_DATA};
+use crate::{
+    db::DocumentDatabase, features::cursor::CursorContext, syntax::bibtex, LineIndexExt,
+    LANGUAGE_DATA,
+};
 
 pub fn find_field_hover(context: &CursorContext<HoverParams>) -> Option<Hover> {
-    let main_document = context.request.main_document();
-
     let name = context
         .cursor
         .as_bibtex()
@@ -20,8 +21,10 @@ pub fn find_field_hover(context: &CursorContext<HoverParams>) -> Option<Hover> {
             value: docs.to_string(),
         }),
         range: Some(
-            main_document
-                .line_index
+            context
+                .request
+                .db
+                .line_index(context.request.document)
                 .line_col_lsp_range(name.text_range()),
         ),
     })

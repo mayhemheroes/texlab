@@ -7,7 +7,7 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
-use crate::Workspace;
+use crate::db::{AnalysisDatabase, Document, RootDatabase};
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,17 +35,19 @@ impl ComponentDatabase {
         })
     }
 
-    pub fn linked_components(&self, workspace: &Workspace) -> Vec<&Component> {
+    pub fn linked_components(
+        &self,
+        db: &RootDatabase,
+        documents: im::Vector<Document>,
+    ) -> Vec<&Component> {
         let mut start_components = vec![self.kernel()];
-        for document in workspace.documents_by_uri.values() {
-            if let Some(data) = document.data.as_latex() {
-                data.extras
-                    .explicit_links
-                    .iter()
-                    .filter_map(|link| link.as_component_name())
-                    .filter_map(|name| self.find(&name))
-                    .for_each(|component| start_components.push(component));
-            }
+        for document in documents {
+            db.extras(document)
+                .explicit_links
+                .iter()
+                .filter_map(|link| link.as_component_name())
+                .filter_map(|name| self.find(&name))
+                .for_each(|component| start_components.push(component));
         }
 
         let mut all_components = Vec::new();

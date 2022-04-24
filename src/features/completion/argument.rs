@@ -1,7 +1,10 @@
 use lsp_types::CompletionParams;
 use rowan::{ast::AstNode, TextRange};
 
-use crate::{component_db::COMPONENT_DATABASE, features::cursor::CursorContext, syntax::latex};
+use crate::{
+    component_db::COMPONENT_DATABASE, db::WorkspaceDatabase, features::cursor::CursorContext,
+    syntax::latex,
+};
 
 use super::types::{InternalCompletionItem, InternalCompletionItemData};
 
@@ -37,7 +40,13 @@ pub fn complete_arguments<'a>(
     let command_name = command.name()?;
     let command_name = &command_name.text()[1..];
 
-    for component in COMPONENT_DATABASE.linked_components(&context.request.workspace) {
+    for component in COMPONENT_DATABASE.linked_components(
+        context.request.db,
+        context
+            .request
+            .db
+            .compilation_unit(context.request.document),
+    ) {
         for component_command in component
             .commands
             .iter()

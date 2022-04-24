@@ -7,23 +7,27 @@ use lsp_types::{DocumentFormattingParams, TextEdit};
 use rowan::{TextLen, TextRange};
 use tempfile::tempdir;
 
-use crate::{features::FeatureRequest, DocumentLanguage, LineIndexExt};
+use crate::{
+    db::{ClientOptionsDatabase, DocumentDatabase},
+    features::FeatureRequest,
+    DocumentLanguage, LineIndexExt,
+};
 
 pub fn format_with_latexindent(
     request: &FeatureRequest<DocumentFormattingParams>,
 ) -> Option<Vec<TextEdit>> {
     let directory = tempdir().ok()?;
-    let document = request.main_document();
 
-    let options = &request.workspace.environment.options;
-    let current_dir = options
-        .root_directory
-        .as_ref()
+    let options = request.db.client_options();
+    let current_dir = request
+        .db
+        .root_directory()
+        .as_deref()
         .cloned()
         .or_else(|| {
-            if document.uri.scheme() == "file" {
-                document
-                    .uri
+            let document_uri = request.db.lookup_intern_document(request.document).uri;
+            if document_uri.scheme() == "file" {
+                document_uri
                     .to_file_path()
                     .unwrap()
                     .parent()
@@ -55,13 +59,14 @@ pub fn format_with_latexindent(
         path.join("latexindent.yaml"),
     );
 
-    let name = if document.data.language() == DocumentLanguage::Bibtex {
+    let name = if request.db.language(request.document) == DocumentLanguage::Bibtex {
         "file.bib"
     } else {
         "file.tex"
     };
 
-    fs::write(directory.path().join(name), document.text.as_str()).ok()?;
+    let text = request.db.source_code(request.document);
+    fs::write(directory.path().join(name), text.as_str()).ok()?;
 
     let mut args = Vec::new();
     if modify_line_breaks {
@@ -85,9 +90,10 @@ pub fn format_with_latexindent(
         None
     } else {
         Some(vec![TextEdit {
-            range: document
-                .line_index
-                .line_col_lsp_range(TextRange::new(0.into(), document.text.text_len())),
+            range: request
+                .db
+                .line_index(request.document)
+                .line_col_lsp_range(TextRange::new(0.into(), text.text_len())),
             new_text,
         }])
     }

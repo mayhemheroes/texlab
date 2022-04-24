@@ -1,6 +1,9 @@
 use lsp_types::CompletionParams;
 
-use crate::features::cursor::CursorContext;
+use crate::{
+    db::{AnalysisDatabase, WorkspaceDatabase},
+    features::cursor::CursorContext,
+};
 
 use super::types::{InternalCompletionItem, InternalCompletionItemData};
 
@@ -10,20 +13,24 @@ pub fn complete_user_environments<'a>(
 ) -> Option<()> {
     let (name, range) = context.find_environment_name()?;
 
-    for document in context.request.workspace.documents_by_uri.values() {
-        if let Some(data) = document.data.as_latex() {
-            for name in data
-                .extras
-                .environment_names
-                .iter()
-                .filter(|n| n.as_str() != name)
-                .cloned()
-            {
-                items.push(InternalCompletionItem::new(
-                    range,
-                    InternalCompletionItemData::UserEnvironment { name },
-                ));
-            }
+    for document in context
+        .request
+        .db
+        .compilation_unit(context.request.document)
+    {
+        for name in context
+            .request
+            .db
+            .extras(document)
+            .environment_names
+            .iter()
+            .filter(|n| n.as_str() != name)
+            .cloned()
+        {
+            items.push(InternalCompletionItem::new(
+                range,
+                InternalCompletionItemData::UserEnvironment { name },
+            ));
         }
     }
 

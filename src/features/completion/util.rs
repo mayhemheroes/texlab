@@ -1,7 +1,7 @@
 use lsp_types::{CompletionItemKind, CompletionParams, Documentation, MarkupContent, MarkupKind};
 use smol_str::SmolStr;
 
-use crate::features::FeatureRequest;
+use crate::{db::ClientCapabilitiesDatabase, features::FeatureRequest};
 
 pub fn component_detail(file_names: &[SmolStr]) -> String {
     if file_names.is_empty() {
@@ -30,35 +30,25 @@ pub fn image_documentation(
 }
 
 fn supports_images(request: &FeatureRequest<CompletionParams>) -> bool {
-    request
-        .workspace
-        .environment
-        .client_capabilities
-        .text_document
-        .as_ref()
-        .and_then(|cap| cap.completion.as_ref())
-        .and_then(|cap| cap.completion_item.as_ref())
-        .and_then(|cap| cap.documentation_format.as_ref())
-        .map_or(true, |formats| formats.contains(&MarkupKind::Markdown))
+    request.db.has_completion_markdown_support()
 }
 
 pub fn adjust_kind(
     request: &FeatureRequest<CompletionParams>,
     kind: CompletionItemKind,
 ) -> CompletionItemKind {
-    if let Some(value_set) = request
-        .workspace
-        .environment
-        .client_capabilities
+    if request
+        .db
+        .client_capabilities()
         .text_document
         .as_ref()
         .and_then(|cap| cap.completion.as_ref())
         .and_then(|cap| cap.completion_item_kind.as_ref())
         .and_then(|cap| cap.value_set.as_ref())
+        .map_or(false, |value_set| value_set.contains(&kind))
     {
-        if value_set.contains(&kind) {
-            return kind;
-        }
+        kind
+    } else {
+        CompletionItemKind::TEXT
     }
-    CompletionItemKind::TEXT
 }

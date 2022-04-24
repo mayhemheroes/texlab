@@ -1,56 +1,51 @@
-use std::{sync::Arc, usize};
-
-use lsp_types::Url;
 use petgraph::{algo::tarjan_scc, Directed, Graph};
 use rustc_hash::FxHashSet;
 
-use crate::{Document, Workspace};
+use crate::db::{
+    AnalysisDatabase, Document, DocumentData, DocumentDatabase, RootDatabase, WorkspaceDatabase,
+};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ProjectOrdering {
-    ordering: Vec<Arc<Url>>,
+    ordering: Vec<Document>,
 }
 
 impl ProjectOrdering {
-    pub fn get(&self, uri: &Url) -> usize {
+    pub fn get(&self, document: Document) -> usize {
         self.ordering
             .iter()
-            .position(|u| u.as_ref() == uri)
-            .unwrap_or(usize::MAX)
+            .position(|d| *d == document)
+            .unwrap_or(std::usize::MAX)
     }
 }
 
-impl From<&Workspace> for ProjectOrdering {
-    fn from(workspace: &Workspace) -> Self {
+impl From<&RootDatabase> for ProjectOrdering {
+    fn from(db: &RootDatabase) -> Self {
         let mut ordering = Vec::new();
-        let uris: FxHashSet<Arc<Url>> = workspace
-            .documents_by_uri
-            .values()
-            .map(|document| Arc::clone(&document.uri))
-            .collect();
 
-        let comps = connected_components(workspace);
+        let comps = connected_components(db);
         for comp in comps {
-            let (graph, documents) = build_dependency_graph(&comp);
+            let graph = build_dependency_graph(db, &comp);
 
             let mut visited = FxHashSet::default();
             let root_index = *graph.node_weight(tarjan_scc(&graph)[0][0]).unwrap();
-            let mut stack = vec![Arc::clone(&documents[root_index].uri)];
+            let mut stack = vec![comp[root_index]];
 
-            while let Some(uri) = stack.pop() {
-                if !visited.insert(Arc::clone(&uri)) {
+            while let Some(document) = stack.pop() {
+                if !visited.insert(document) {
                     continue;
                 }
 
-                ordering.push(Arc::clone(&uri));
-                if let Some(document) = workspace.documents_by_uri.get(&uri) {
-                    if let Some(data) = document.data.as_latex() {
-                        for link in data.extras.explicit_links.iter().rev() {
-                            for target in &link.targets {
-                                if uris.contains(target.as_ref()) {
-                                    stack.push(Arc::clone(target));
-                                }
-                            }
+                ordering.push(document);
+                for link in db.extras(document).explicit_links.iter().rev() {
+                    for target in link
+                        .targets
+                        .iter()
+                        .cloned()
+                        .map(|uri| db.intern_document(DocumentData { uri }))
+                    {
+                        if db.all_documents().contains(&target) {
+                            stack.push(target);
                         }
                     }
                 }
@@ -61,45 +56,51 @@ impl From<&Workspace> for ProjectOrdering {
     }
 }
 
-fn connected_components(workspace: &Workspace) -> Vec<Workspace> {
+fn connected_components(db: &RootDatabase) -> Vec<im::Vector<Document>> {
     let mut components = Vec::new();
     let mut visited = FxHashSet::default();
-    for root_document in workspace.documents_by_uri.values() {
-        if !visited.insert(Arc::clone(&root_document.uri)) {
+    for root_document in db.all_documents() {
+        if !visited.insert(root_document) {
             continue;
         }
 
-        let slice = workspace.slice(&root_document.uri);
-        for uri in slice.documents_by_uri.keys() {
-            visited.insert(Arc::clone(uri));
-        }
-        components.push(slice);
+        let unit = db.compilation_unit(root_document);
+        visited.extend(unit.iter());
+        components.push(unit);
     }
+
     components
 }
 
-fn build_dependency_graph(workspace: &Workspace) -> (Graph<usize, (), Directed>, Vec<&Document>) {
+fn build_dependency_graph(
+    db: &RootDatabase,
+    documents: &im::Vector<Document>,
+) -> Graph<usize, (), Directed> {
     let mut graph = Graph::new();
-    let documents: Vec<_> = workspace.documents_by_uri.values().collect();
     let nodes: Vec<_> = (0..documents.len()).map(|i| graph.add_node(i)).collect();
 
-    for (i, document) in documents.iter().enumerate() {
-        if let Some(data) = document.data.as_latex() {
-            for link in &data.extras.explicit_links {
-                for target in &link.targets {
-                    if let Some(j) = documents
-                        .iter()
-                        .position(|document| document.uri.as_ref() == target.as_ref())
-                    {
-                        graph.add_edge(nodes[j], nodes[i], ());
-                        break;
-                    }
+    for (i, document) in documents.iter().copied().enumerate() {
+        let extras = db.extras(document);
+        for link in &extras.explicit_links {
+            for target in link
+                .targets
+                .iter()
+                .cloned()
+                .map(|uri| db.intern_document(DocumentData { uri }))
+            {
+                if let Some(j) = documents
+                    .iter()
+                    .copied()
+                    .position(|document| document == target)
+                {
+                    graph.add_edge(nodes[j], nodes[i], ());
+                    break;
                 }
             }
         }
     }
 
-    (graph, documents)
+    graph
 }
 
 #[cfg(test)]
@@ -107,6 +108,7 @@ mod tests {
     use std::sync::Arc;
 
     use anyhow::Result;
+    use lsp_types::Url;
 
     use crate::DocumentLanguage;
 
@@ -114,96 +116,93 @@ mod tests {
 
     #[test]
     fn test_no_cycles() -> Result<()> {
-        let mut workspace = Workspace::default();
+        let mut db = RootDatabase::default();
 
-        let a = workspace.open(
-            Arc::new(Url::parse("http://example.com/a.tex")?),
-            Arc::new(String::new()),
-            DocumentLanguage::Latex,
-        )?;
+        let a = db.intern_document(DocumentData::from(Url::parse("http://example.com/a.tex")?));
+        let b = db.intern_document(DocumentData::from(Url::parse("http://example.com/b.tex")?));
+        let c = db.intern_document(DocumentData::from(Url::parse("http://example.com/c.tex")?));
 
-        let b = workspace.open(
-            Arc::new(Url::parse("http://example.com/b.tex")?),
-            Arc::new(String::new()),
-            DocumentLanguage::Latex,
-        )?;
+        db.upsert_document(a, Arc::new(String::new()), DocumentLanguage::Latex);
 
-        let c = workspace.open(
-            Arc::new(Url::parse("http://example.com/c.tex")?),
+        db.upsert_document(b, Arc::new(String::new()), DocumentLanguage::Latex);
+
+        db.upsert_document(
+            c,
             Arc::new(r#"\include{b}\include{a}"#.to_string()),
             DocumentLanguage::Latex,
-        )?;
+        );
 
-        let ordering = ProjectOrdering::from(&workspace);
+        let ordering = ProjectOrdering::from(&db);
 
-        assert_eq!(ordering.get(&a.uri), 2);
-        assert_eq!(ordering.get(&b.uri), 1);
-        assert_eq!(ordering.get(&c.uri), 0);
+        assert_eq!(ordering.get(a), 2);
+        assert_eq!(ordering.get(b), 1);
+        assert_eq!(ordering.get(c), 0);
         Ok(())
     }
 
     #[test]
     fn test_cycles() -> Result<()> {
-        let mut workspace = Workspace::default();
+        let mut db = RootDatabase::default();
 
-        let a = workspace.open(
-            Arc::new(Url::parse("http://example.com/a.tex")?),
+        let a = db.intern_document(DocumentData::from(Url::parse("http://example.com/a.tex")?));
+        let b = db.intern_document(DocumentData::from(Url::parse("http://example.com/b.tex")?));
+        let c = db.intern_document(DocumentData::from(Url::parse("http://example.com/c.tex")?));
+
+        db.upsert_document(
+            a,
             Arc::new(r#"\include{b}"#.to_string()),
             DocumentLanguage::Latex,
-        )?;
+        );
 
-        let b = workspace.open(
-            Arc::new(Url::parse("http://example.com/b.tex")?),
+        db.upsert_document(
+            b,
             Arc::new(r#"\include{a}"#.to_string()),
             DocumentLanguage::Latex,
-        )?;
+        );
 
-        let c = workspace.open(
-            Arc::new(Url::parse("http://example.com/c.tex")?),
+        db.upsert_document(
+            c,
             Arc::new(r#"\include{a}"#.to_string()),
             DocumentLanguage::Latex,
-        )?;
+        );
 
-        let ordering = ProjectOrdering::from(&workspace);
+        let ordering = ProjectOrdering::from(&db);
 
-        assert_eq!(ordering.get(&a.uri), 1);
-        assert_eq!(ordering.get(&b.uri), 2);
-        assert_eq!(ordering.get(&c.uri), 0);
+        assert_eq!(ordering.get(a), 1);
+        assert_eq!(ordering.get(b), 2);
+        assert_eq!(ordering.get(c), 0);
         Ok(())
     }
 
     #[test]
     fn test_multiple_roots() -> Result<()> {
-        let mut workspace = Workspace::default();
+        let mut db = RootDatabase::default();
 
-        let a = workspace.open(
-            Arc::new(Url::parse("http://example.com/a.tex")?),
+        let a = db.intern_document(DocumentData::from(Url::parse("http://example.com/a.tex")?));
+        let b = db.intern_document(DocumentData::from(Url::parse("http://example.com/b.tex")?));
+        let c = db.intern_document(DocumentData::from(Url::parse("http://example.com/c.tex")?));
+        let d = db.intern_document(DocumentData::from(Url::parse("http://example.com/d.tex")?));
+
+        db.upsert_document(
+            a,
             Arc::new(r#"\include{b}"#.to_string()),
             DocumentLanguage::Latex,
-        )?;
+        );
 
-        let b = workspace.open(
-            Arc::new(Url::parse("http://example.com/b.tex")?),
-            Arc::new(r#""#.to_string()),
-            DocumentLanguage::Latex,
-        )?;
+        db.upsert_document(b, Arc::new(r#""#.to_string()), DocumentLanguage::Latex);
 
-        let c = workspace.open(
-            Arc::new(Url::parse("http://example.com/c.tex")?),
-            Arc::new(r#""#.to_string()),
-            DocumentLanguage::Latex,
-        )?;
+        db.upsert_document(c, Arc::new(r#""#.to_string()), DocumentLanguage::Latex);
 
-        let d = workspace.open(
-            Arc::new(Url::parse("http://example.com/d.tex")?),
+        db.upsert_document(
+            d,
             Arc::new(r#"\include{c}"#.to_string()),
             DocumentLanguage::Latex,
-        )?;
+        );
 
-        let ordering = ProjectOrdering::from(&workspace);
+        let ordering = ProjectOrdering::from(&db);
 
-        assert!(ordering.get(&a.uri) < ordering.get(&b.uri));
-        assert!(ordering.get(&d.uri) < ordering.get(&c.uri));
+        assert!(ordering.get(a) < ordering.get(b));
+        assert!(ordering.get(d) < ordering.get(c));
         Ok(())
     }
 }

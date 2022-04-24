@@ -2,9 +2,10 @@ use lsp_types::{Location, ReferenceParams};
 use rowan::ast::AstNode;
 
 use crate::{
+    db::{DocumentDatabase, SyntaxDatabase, SyntaxTree, WorkspaceDatabase},
     features::cursor::CursorContext,
     syntax::{bibtex, latex},
-    DocumentData, LineIndexExt,
+    LineIndexExt,
 };
 
 pub fn find_entry_references(
@@ -16,40 +17,66 @@ pub fn find_entry_references(
         .or_else(|| context.find_citation_key_command())
         .or_else(|| context.find_entry_key())?;
 
-    for document in context.request.workspace.documents_by_uri.values() {
-        match &document.data {
-            DocumentData::Latex(data) => {
-                latex::SyntaxNode::new_root(data.green.clone())
+    for document in context
+        .request
+        .db
+        .compilation_unit(context.request.document)
+    {
+        match context.request.db.syntax_tree(document) {
+            SyntaxTree::Latex(green) => {
+                latex::SyntaxNode::new_root(green)
                     .descendants()
                     .filter_map(latex::Citation::cast)
                     .filter_map(|citation| citation.key_list())
                     .flat_map(|keys| keys.keys())
                     .filter(|key| key.to_string() == key_text)
                     .map(|key| {
-                        document
-                            .line_index
+                        context
+                            .request
+                            .db
+                            .line_index(document)
                             .line_col_lsp_range(latex::small_range(&key))
                     })
                     .for_each(|range| {
-                        references.push(Location::new(document.uri.as_ref().clone(), range));
+                        references.push(Location::new(
+                            context
+                                .request
+                                .db
+                                .lookup_intern_document(document)
+                                .uri
+                                .as_ref()
+                                .clone(),
+                            range,
+                        ));
                     });
             }
-            DocumentData::Bibtex(data) if context.request.params.context.include_declaration => {
-                bibtex::SyntaxNode::new_root(data.green.clone())
+            SyntaxTree::Bibtex(green) if context.request.params.context.include_declaration => {
+                bibtex::SyntaxNode::new_root(green)
                     .children()
                     .filter_map(bibtex::Entry::cast)
                     .filter_map(|entry| entry.key())
                     .filter(|key| key.to_string() == key_text)
                     .map(|key| {
-                        document
-                            .line_index
+                        context
+                            .request
+                            .db
+                            .line_index(document)
                             .line_col_lsp_range(bibtex::small_range(&key))
                     })
                     .for_each(|range| {
-                        references.push(Location::new(document.uri.as_ref().clone(), range));
+                        references.push(Location::new(
+                            context
+                                .request
+                                .db
+                                .lookup_intern_document(document)
+                                .uri
+                                .as_ref()
+                                .clone(),
+                            range,
+                        ));
                     });
             }
-            DocumentData::Bibtex(_) | DocumentData::BuildLog(_) => {}
+            SyntaxTree::Bibtex(_) | SyntaxTree::BuildLog(_) => {}
         }
     }
     Some(())

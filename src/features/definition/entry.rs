@@ -2,6 +2,7 @@ use lsp_types::{GotoDefinitionParams, LocationLink};
 use rowan::ast::AstNode;
 
 use crate::{
+    db::{DocumentDatabase, SyntaxDatabase, SyntaxTree, WorkspaceDatabase},
     features::cursor::CursorContext,
     syntax::{bibtex, latex},
     LineIndexExt,
@@ -10,8 +11,6 @@ use crate::{
 pub fn goto_entry_definition(
     context: &CursorContext<GotoDefinitionParams>,
 ) -> Option<Vec<LocationLink>> {
-    let main_document = context.request.main_document();
-
     let word = context
         .cursor
         .as_latex()
@@ -21,26 +20,37 @@ pub fn goto_entry_definition(
 
     latex::Citation::cast(key.syntax().parent()?.parent()?)?;
 
-    let origin_selection_range = main_document
-        .line_index
+    let origin_selection_range = context
+        .request
+        .db
+        .line_index(context.request.document)
         .line_col_lsp_range(latex::small_range(&key));
 
-    for document in context.request.workspace.documents_by_uri.values() {
-        if let Some(data) = document.data.as_bibtex() {
-            for entry in bibtex::SyntaxNode::new_root(data.green.clone())
+    for document in context
+        .request
+        .db
+        .compilation_unit(context.request.document)
+    {
+        if let SyntaxTree::Bibtex(green) = context.request.db.syntax_tree(document) {
+            let line_index = context.request.db.line_index(document);
+
+            for entry in bibtex::SyntaxNode::new_root(green)
                 .children()
                 .filter_map(bibtex::Entry::cast)
             {
                 if let Some(key) = entry.key().filter(|k| k.to_string() == key.to_string()) {
                     return Some(vec![LocationLink {
                         origin_selection_range: Some(origin_selection_range),
-                        target_uri: document.uri.as_ref().clone(),
-                        target_selection_range: document
-                            .line_index
+                        target_uri: context
+                            .request
+                            .db
+                            .lookup_intern_document(document)
+                            .uri
+                            .as_ref()
+                            .clone(),
+                        target_selection_range: line_index
                             .line_col_lsp_range(bibtex::small_range(&key)),
-                        target_range: document
-                            .line_index
-                            .line_col_lsp_range(bibtex::small_range(&entry)),
+                        target_range: line_index.line_col_lsp_range(bibtex::small_range(&entry)),
                     }]);
                 }
             }

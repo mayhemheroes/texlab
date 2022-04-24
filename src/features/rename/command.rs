@@ -4,6 +4,7 @@ use lsp_types::{Range, RenameParams, TextEdit, WorkspaceEdit};
 use rowan::{TextRange, TextSize};
 
 use crate::{
+    db::{DocumentDatabase, SyntaxDatabase, SyntaxTree, WorkspaceDatabase},
     features::cursor::{CursorContext, HasPosition},
     syntax::latex,
     LineIndexExt,
@@ -13,8 +14,8 @@ pub fn prepare_command_rename<P: HasPosition>(context: &CursorContext<P>) -> Opt
     Some(
         context
             .request
-            .main_document()
-            .line_index
+            .db
+            .line_index(context.request.document)
             .line_col_lsp_range(context.cursor.command_range(context.offset)?),
     )
 }
@@ -23,23 +24,36 @@ pub fn rename_command(context: &CursorContext<RenameParams>) -> Option<Workspace
     prepare_command_rename(context)?;
     let name = context.cursor.as_latex()?.text();
     let mut changes = HashMap::new();
-    for document in context.request.workspace.documents_by_uri.values() {
-        if let Some(data) = document.data.as_latex() {
-            let edits = latex::SyntaxNode::new_root(data.green.clone())
-                .descendants_with_tokens()
-                .filter_map(|element| element.into_token())
-                .filter(|token| token.kind().is_command_name() && token.text() == name)
-                .map(|token| {
-                    let range = token.text_range();
-                    let range = document.line_index.line_col_lsp_range(TextRange::new(
-                        range.start() + TextSize::from(1),
-                        range.end(),
-                    ));
-                    TextEdit::new(range, context.request.params.new_name.clone())
-                })
-                .collect();
+    for document in context
+        .request
+        .db
+        .compilation_unit(context.request.document)
+    {
+        if let SyntaxTree::Latex(green) = context.request.db.syntax_tree(document) {
+            let edits =
+                latex::SyntaxNode::new_root(green)
+                    .descendants_with_tokens()
+                    .filter_map(|element| element.into_token())
+                    .filter(|token| token.kind().is_command_name() && token.text() == name)
+                    .map(|token| {
+                        let range = token.text_range();
+                        let range = context.request.db.line_index(document).line_col_lsp_range(
+                            TextRange::new(range.start() + TextSize::from(1), range.end()),
+                        );
+                        TextEdit::new(range, context.request.params.new_name.clone())
+                    })
+                    .collect();
 
-            changes.insert(document.uri.as_ref().clone(), edits);
+            changes.insert(
+                context
+                    .request
+                    .db
+                    .lookup_intern_document(document)
+                    .uri
+                    .as_ref()
+                    .clone(),
+                edits,
+            );
         }
     }
 

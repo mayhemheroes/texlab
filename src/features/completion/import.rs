@@ -3,7 +3,10 @@ use rowan::ast::AstNode;
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 
-use crate::{component_db::COMPONENT_DATABASE, features::cursor::CursorContext, syntax::latex};
+use crate::{
+    component_db::COMPONENT_DATABASE, db::DistroDatabase, features::cursor::CursorContext,
+    syntax::latex,
+};
 
 use super::types::{InternalCompletionItem, InternalCompletionItemData};
 
@@ -42,8 +45,10 @@ pub fn complete_imports<'a>(
         items.push(item);
     }
 
-    let resolver = &context.request.workspace.environment.resolver;
-    for file_name in resolver
+    for file_name in context
+        .request
+        .db
+        .distro_resolver()
         .files_by_name
         .keys()
         .filter(|file_name| file_name.ends_with(extension) && !file_names.contains(file_name))

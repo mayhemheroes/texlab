@@ -7,7 +7,11 @@ use std::{
 use lsp_types::CompletionParams;
 use rowan::{ast::AstNode, TextRange, TextSize};
 
-use crate::{features::cursor::CursorContext, syntax::latex};
+use crate::{
+    db::{AnalysisDatabase, ClientOptionsDatabase, DocumentDatabase, WorkspaceDatabase},
+    features::cursor::CursorContext,
+    syntax::latex,
+};
 
 use super::types::{InternalCompletionItem, InternalCompletionItemData};
 
@@ -15,7 +19,14 @@ pub fn complete_includes<'a>(
     context: &'a CursorContext<CompletionParams>,
     items: &mut Vec<InternalCompletionItem<'a>>,
 ) -> Option<()> {
-    if context.request.main_document().uri.scheme() != "file" {
+    if context
+        .request
+        .db
+        .lookup_intern_document(context.request.document)
+        .uri
+        .scheme()
+        != "file"
+    {
         return None;
     }
 
@@ -51,11 +62,13 @@ pub fn complete_includes<'a>(
 
     let mut dirs = vec![current_dir(context, &path_text, None)];
     if include.kind() == latex::GRAPHICS_INCLUDE {
-        for document in context.request.workspace.documents_by_uri.values() {
-            if let Some(data) = document.data.as_latex() {
-                for graphics_path in &data.extras.graphics_paths {
-                    dirs.push(current_dir(context, &path_text, Some(graphics_path)));
-                }
+        for document in context
+            .request
+            .db
+            .compilation_unit(context.request.document)
+        {
+            for graphics_path in &context.request.db.extras(document).graphics_paths {
+                dirs.push(current_dir(context, &path_text, Some(graphics_path)));
             }
         }
     }
@@ -96,21 +109,18 @@ fn current_dir(
 ) -> Option<PathBuf> {
     let mut path = context
         .request
-        .workspace
-        .environment
-        .options
-        .root_directory
-        .as_ref()
-        .map(|root_directory| {
-            context
-                .request
-                .workspace
-                .environment
-                .current_directory
-                .join(root_directory)
-        })
+        .db
+        .root_directory()
+        .as_deref()
+        .cloned()
         .unwrap_or_else(|| {
-            let mut path = context.request.main_document().uri.to_file_path().unwrap();
+            let mut path = context
+                .request
+                .db
+                .lookup_intern_document(context.request.document)
+                .uri
+                .to_file_path()
+                .unwrap();
             path.pop();
             path
         });

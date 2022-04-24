@@ -2,6 +2,7 @@ use lsp_types::DocumentSymbolParams;
 use rowan::ast::AstNode;
 
 use crate::{
+    db::{DocumentDatabase, SyntaxDatabase},
     features::FeatureRequest,
     syntax::bibtex::{self, HasType},
     BibtexEntryTypeCategory, LineIndexExt, LANGUAGE_DATA,
@@ -13,10 +14,9 @@ pub fn find_bibtex_symbols(
     request: &FeatureRequest<DocumentSymbolParams>,
     buf: &mut Vec<InternalSymbol>,
 ) -> Option<()> {
-    let main_document = request.main_document();
-    let data = main_document.data.as_bibtex()?;
+    let green = request.db.syntax_tree(request.document).into_bibtex()?;
 
-    for node in bibtex::SyntaxNode::new_root(data.green.clone()).children() {
+    for node in bibtex::SyntaxNode::new_root(green).children() {
         if let Some(string) = bibtex::String::cast(node.clone()) {
             if let Some(name) = string.name() {
                 buf.push(InternalSymbol {
@@ -24,11 +24,13 @@ pub fn find_bibtex_symbols(
                     label: None,
                     kind: InternalSymbolKind::String,
                     deprecated: false,
-                    full_range: main_document
-                        .line_index
+                    full_range: request
+                        .db
+                        .line_index(request.document)
                         .line_col_lsp_range(bibtex::small_range(&string)),
-                    selection_range: main_document
-                        .line_index
+                    selection_range: request
+                        .db
+                        .line_index(request.document)
                         .line_col_lsp_range(name.text_range()),
                     children: Vec::new(),
                 })
@@ -44,11 +46,13 @@ pub fn find_bibtex_symbols(
                                 label: None,
                                 kind: InternalSymbolKind::Field,
                                 deprecated: false,
-                                full_range: main_document
-                                    .line_index
+                                full_range: request
+                                    .db
+                                    .line_index(request.document)
                                     .line_col_lsp_range(bibtex::small_range(&field)),
-                                selection_range: main_document
-                                    .line_index
+                                selection_range: request
+                                    .db
+                                    .line_index(request.document)
                                     .line_col_lsp_range(name.text_range()),
                                 children: Vec::new(),
                             };
@@ -66,11 +70,13 @@ pub fn find_bibtex_symbols(
                         label: None,
                         kind: InternalSymbolKind::Entry(category),
                         deprecated: false,
-                        full_range: main_document
-                            .line_index
+                        full_range: request
+                            .db
+                            .line_index(request.document)
                             .line_col_lsp_range(bibtex::small_range(&entry)),
-                        selection_range: main_document
-                            .line_index
+                        selection_range: request
+                            .db
+                            .line_index(request.document)
                             .line_col_lsp_range(bibtex::small_range(&key)),
                         children,
                     });

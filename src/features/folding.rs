@@ -2,33 +2,38 @@ use lsp_types::{FoldingRange, FoldingRangeKind, FoldingRangeParams, Range};
 use rowan::ast::AstNode;
 
 use crate::{
+    db::{DocumentDatabase, SyntaxDatabase, SyntaxTree},
     syntax::{bibtex, latex},
-    DocumentData, LineIndexExt,
+    LineIndexExt,
 };
 
 use super::FeatureRequest;
 
 pub fn find_foldings(request: FeatureRequest<FoldingRangeParams>) -> Vec<FoldingRange> {
     let mut foldings = Vec::new();
-    let main_document = request.main_document();
-    match &main_document.data {
-        DocumentData::Latex(data) => {
-            for node in latex::SyntaxNode::new_root(data.green.clone()).descendants() {
+    match request.db.syntax_tree(request.document) {
+        SyntaxTree::Latex(green) => {
+            for node in latex::SyntaxNode::new_root(green).descendants() {
                 if let Some(folding) = latex::Environment::cast(node.clone())
                     .map(|node| latex::small_range(&node))
                     .or_else(|| {
                         latex::Section::cast(node.clone()).map(|node| latex::small_range(&node))
                     })
                     .or_else(|| latex::EnumItem::cast(node).map(|node| latex::small_range(&node)))
-                    .map(|node| main_document.line_index.line_col_lsp_range(node))
+                    .map(|node| {
+                        request
+                            .db
+                            .line_index(request.document)
+                            .line_col_lsp_range(node)
+                    })
                     .map(create_range)
                 {
                     foldings.push(folding);
                 }
             }
         }
-        DocumentData::Bibtex(data) => {
-            for node in bibtex::SyntaxNode::new_root(data.green.clone()).descendants() {
+        SyntaxTree::Bibtex(green) => {
+            for node in bibtex::SyntaxNode::new_root(green).descendants() {
                 if let Some(folding) = bibtex::Preamble::cast(node.clone())
                     .map(|node| bibtex::small_range(&node))
                     .or_else(|| {
@@ -37,14 +42,19 @@ pub fn find_foldings(request: FeatureRequest<FoldingRangeParams>) -> Vec<Folding
                     .or_else(|| {
                         bibtex::Entry::cast(node.clone()).map(|node| bibtex::small_range(&node))
                     })
-                    .map(|node| main_document.line_index.line_col_lsp_range(node))
+                    .map(|node| {
+                        request
+                            .db
+                            .line_index(request.document)
+                            .line_col_lsp_range(node)
+                    })
                     .map(create_range)
                 {
                     foldings.push(folding);
                 }
             }
         }
-        DocumentData::BuildLog(_) => {}
+        SyntaxTree::BuildLog(_) => {}
     }
     foldings
 }

@@ -20,7 +20,15 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use uuid::Uuid;
 
-use crate::{client, req_queue::ReqQueue, ClientCapabilitiesExt, DocumentLanguage};
+use crate::{
+    client,
+    db::{
+        AnalysisDatabase, ClientCapabilitiesDatabase, ClientOptionsDatabase, DocumentDatabase,
+        WorkspaceDatabase,
+    },
+    req_queue::ReqQueue,
+    DocumentLanguage,
+};
 
 use super::{forward_search, FeatureRequest};
 
@@ -113,36 +121,27 @@ impl BuildEngine {
         let lock = self.lock.lock().unwrap();
 
         let document = request
-            .workspace
-            .documents_by_uri
-            .values()
-            .find(|document| {
-                if let Some(data) = document.data.as_latex() {
-                    data.extras.has_document_environment
-                } else {
-                    false
-                }
-            })
-            .unwrap_or_else(|| request.main_document());
+            .db
+            .compilation_unit(request.document)
+            .into_iter()
+            .find(|document| request.db.extras(*document).has_document_environment)
+            .unwrap_or(request.document);
 
-        if document.data.language() != DocumentLanguage::Latex {
+        if request.db.language(document) != DocumentLanguage::Latex {
             return Ok(BuildResult {
                 status: BuildStatus::SUCCESS,
             });
         }
 
-        if document.uri.scheme() != "file" {
+        let document_uri = request.db.lookup_intern_document(document).uri;
+        if document_uri.scheme() != "file" {
             return Ok(BuildResult {
                 status: BuildStatus::FAILURE,
             });
         }
-        let path = document.uri.to_file_path().unwrap();
+        let path = document_uri.to_file_path().unwrap();
 
-        let supports_progress = request
-            .workspace
-            .environment
-            .client_capabilities
-            .has_work_done_progress_support();
+        let supports_progress = request.db.has_work_done_progress_support();
 
         let token = format!("texlab-build-{}", Uuid::new_v4());
         let progress_reporter = ProgressReporter {
@@ -151,15 +150,16 @@ impl BuildEngine {
             lsp_sender: lsp_sender.clone(),
             token: &token,
         };
-        progress_reporter.start(&document.uri)?;
+        progress_reporter.start(&document_uri)?;
 
-        let options = &request.workspace.environment.options;
+        let options = request.db.client_options();
 
-        let build_dir = options
-            .root_directory
-            .as_ref()
-            .map(AsRef::as_ref)
-            .or_else(|| path.parent())
+        let build_dir = request
+            .db
+            .root_directory()
+            .as_deref()
+            .cloned()
+            .or_else(|| path.parent().map(ToOwned::to_owned))
             .unwrap();
 
         let args: Vec<_> = options
@@ -198,13 +198,20 @@ impl BuildEngine {
                 params: TextDocumentPositionParams {
                     position: self
                         .positions_by_uri
-                        .get(&request.main_document().uri)
+                        .get(&request.document.lookup(request.db).uri)
                         .map(|guard| *guard)
                         .unwrap_or_default(),
-                    text_document: TextDocumentIdentifier::new(request.uri.as_ref().clone()),
+                    text_document: TextDocumentIdentifier::new(
+                        request
+                            .db
+                            .lookup_intern_document(request.document)
+                            .uri
+                            .as_ref()
+                            .clone(),
+                    ),
                 },
-                uri: request.uri,
-                workspace: request.workspace,
+                document: request.document,
+                db: request.db,
             };
             forward_search::execute_forward_search(request);
         }

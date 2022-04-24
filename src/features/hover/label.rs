@@ -1,18 +1,34 @@
 use lsp_types::{Hover, HoverContents, HoverParams};
 
-use crate::{features::cursor::CursorContext, render_label, LineIndexExt};
+use crate::{
+    db::{DocumentDatabase, WorkspaceDatabase},
+    features::cursor::CursorContext,
+    render_label, LineIndexExt,
+};
 
 pub fn find_label_hover(context: &CursorContext<HoverParams>) -> Option<Hover> {
-    let main_document = context.request.main_document();
-
     let (name_text, name_range) = context
         .find_label_name_key()
         .or_else(|| context.find_label_name_command())?;
 
-    let label = render_label(&context.request.workspace, &name_text, None)?;
+    let label = render_label(
+        context.request.db,
+        &context
+            .request
+            .db
+            .compilation_unit(context.request.document),
+        &name_text,
+        None,
+    )?;
 
     Some(Hover {
-        range: Some(main_document.line_index.line_col_lsp_range(name_range)),
+        range: Some(
+            context
+                .request
+                .db
+                .line_index(context.request.document)
+                .line_col_lsp_range(name_range),
+        ),
         contents: HoverContents::Markup(label.documentation()),
     })
 }

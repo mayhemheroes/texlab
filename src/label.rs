@@ -4,8 +4,9 @@ use lsp_types::{MarkupContent, MarkupKind};
 use rowan::{ast::AstNode, TextRange};
 
 use crate::{
+    db::{AnalysisDatabase, Document, DocumentDatabase, RootDatabase, SyntaxDatabase, SyntaxTree},
     syntax::latex::{self, HasBrack, HasCurly},
-    Workspace, LANGUAGE_DATA,
+    LANGUAGE_DATA,
 };
 
 use self::LabelledObject::*;
@@ -124,16 +125,17 @@ impl RenderedLabel {
 }
 
 pub fn render_label(
-    workspace: &Workspace,
+    db: &RootDatabase,
+    unit: &im::Vector<Document>,
     label_name: &str,
     mut label: Option<latex::LabelDefinition>,
 ) -> Option<RenderedLabel> {
-    let mut number = find_label_number(workspace, label_name).map(ToString::to_string);
+    let mut number = find_label_number(db, label_name);
 
-    for document in workspace.documents_by_uri.values() {
-        if let Some(data) = document.data.as_latex() {
+    for document in unit.iter().copied() {
+        if let SyntaxTree::Latex(green) = db.syntax_tree(document) {
             label = label.or_else(|| {
-                find_label_definition(&latex::SyntaxNode::new_root(data.green.clone()), label_name)
+                find_label_definition(&latex::SyntaxNode::new_root(green.clone()), label_name)
             });
         }
     }
@@ -143,7 +145,7 @@ pub fn render_label(
             .or_else(|| render_label_section(parent.clone(), &mut number))
             .or_else(|| render_label_enum_item(parent.clone(), &mut number))
             .or_else(|| render_label_equation(parent.clone(), &mut number))
-            .or_else(|| render_label_theorem(workspace, parent, &mut number))
+            .or_else(|| render_label_theorem(db, parent, &mut number))
     })
 }
 
@@ -163,13 +165,12 @@ pub fn find_label_definition(
         })
 }
 
-pub fn find_label_number<'a>(workspace: &'a Workspace, label_name: &str) -> Option<&'a str> {
-    workspace.documents_by_uri.values().find_map(|document| {
-        document
-            .data
-            .as_latex()
-            .and_then(|data| data.extras.label_numbers_by_name.get(label_name))
-            .map(|number| number.as_str())
+pub fn find_label_number(db: &RootDatabase, label_name: &str) -> Option<String> {
+    db.all_documents().into_iter().find_map(|document| {
+        db.extras(document)
+            .label_numbers_by_name
+            .get(label_name)
+            .cloned()
     })
 }
 
@@ -253,7 +254,7 @@ fn render_label_equation(
 }
 
 fn render_label_theorem(
-    workspace: &Workspace,
+    db: &RootDatabase,
     parent: latex::SyntaxNode,
     number: &mut Option<String>,
 ) -> Option<RenderedLabel> {
@@ -263,20 +264,19 @@ fn render_label_theorem(
 
     let environment_name = begin.name()?.key()?.to_string();
 
-    let theorem = workspace.documents_by_uri.values().find_map(|document| {
-        document.data.as_latex().and_then(|data| {
-            data.extras
-                .theorem_environments
-                .iter()
-                .find(|theorem| theorem.name.as_str() == environment_name)
-        })
+    let theorem = db.all_documents().into_iter().find_map(|document| {
+        db.extras(document)
+            .theorem_environments
+            .iter()
+            .find(|theorem| theorem.name.as_str() == environment_name)
+            .cloned()
     })?;
 
     Some(RenderedLabel {
         range: latex::small_range(&environment),
         number: number.take(),
         object: LabelledObject::Theorem {
-            kind: theorem.description.clone(),
+            kind: theorem.description,
             description,
         },
     })

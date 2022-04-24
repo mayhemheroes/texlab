@@ -1,6 +1,10 @@
 use lsp_types::{Location, ReferenceParams};
 
-use crate::{features::cursor::CursorContext, LineIndexExt};
+use crate::{
+    db::{AnalysisDatabase, DocumentDatabase, WorkspaceDatabase},
+    features::cursor::CursorContext,
+    LineIndexExt,
+};
 
 pub fn find_label_references(
     context: &CursorContext<ReferenceParams>,
@@ -10,22 +14,36 @@ pub fn find_label_references(
         .find_label_name_key()
         .or_else(|| context.find_label_name_command())?;
 
-    for document in context.request.workspace.documents_by_uri.values() {
-        if let Some(data) = document.data.as_latex() {
-            for name in data
-                .extras
-                .label_names
-                .iter()
-                .filter(|name| name.text == name_text)
-                .filter(|name| {
-                    !name.is_definition || context.request.params.context.include_declaration
-                })
-            {
-                references.push(Location::new(
-                    document.uri.as_ref().clone(),
-                    document.line_index.line_col_lsp_range(name.range),
-                ));
-            }
+    for document in context
+        .request
+        .db
+        .compilation_unit(context.request.document)
+    {
+        for name in context
+            .request
+            .db
+            .extras(document)
+            .label_names
+            .iter()
+            .filter(|name| name.text == name_text)
+            .filter(|name| {
+                !name.is_definition || context.request.params.context.include_declaration
+            })
+        {
+            references.push(Location::new(
+                context
+                    .request
+                    .db
+                    .lookup_intern_document(document)
+                    .uri
+                    .as_ref()
+                    .clone(),
+                context
+                    .request
+                    .db
+                    .line_index(document)
+                    .line_col_lsp_range(name.range),
+            ));
         }
     }
 

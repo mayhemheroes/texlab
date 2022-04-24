@@ -1,40 +1,51 @@
 use lsp_types::{GotoDefinitionParams, LocationLink, Range};
 
-use crate::{features::cursor::CursorContext, LineIndexExt, RangeExt};
+use crate::{
+    db::{AnalysisDatabase, DocumentData, DocumentDatabase},
+    features::cursor::CursorContext,
+    LineIndexExt, RangeExt,
+};
 
 pub fn goto_document_definition(
     context: &CursorContext<GotoDefinitionParams>,
 ) -> Option<Vec<LocationLink>> {
-    let main_document = context.request.main_document();
-    if let Some(data) = main_document.data.as_latex() {
-        for include in data
-            .extras
-            .explicit_links
+    for include in context
+        .request
+        .db
+        .extras(context.request.document)
+        .explicit_links
+        .iter()
+        .filter(|link| link.stem_range.contains_inclusive(context.offset))
+    {
+        for target in include
+            .targets
             .iter()
-            .filter(|link| link.stem_range.contains_inclusive(context.offset))
+            .cloned()
+            .map(|uri| context.request.db.intern_document(DocumentData { uri }))
         {
-            for target in &include.targets {
-                if context
-                    .request
-                    .workspace
-                    .documents_by_uri
-                    .values()
-                    .any(|document| document.uri.as_ref() == target.as_ref())
-                {
-                    return Some(vec![LocationLink {
-                        origin_selection_range: Some(
-                            main_document
-                                .line_index
-                                .line_col_lsp_range(include.stem_range),
-                        ),
-                        target_uri: target.as_ref().clone(),
-                        target_range: Range::new_simple(0, 0, 0, 0),
-                        target_selection_range: Range::new_simple(0, 0, 0, 0),
-                    }]);
-                }
+            if context.request.db.all_documents().contains(&target) {
+                return Some(vec![LocationLink {
+                    origin_selection_range: Some(
+                        context
+                            .request
+                            .db
+                            .line_index(context.request.document)
+                            .line_col_lsp_range(include.stem_range),
+                    ),
+                    target_uri: context
+                        .request
+                        .db
+                        .lookup_intern_document(target)
+                        .uri
+                        .as_ref()
+                        .clone(),
+                    target_range: Range::new_simple(0, 0, 0, 0),
+                    target_selection_range: Range::new_simple(0, 0, 0, 0),
+                }]);
             }
         }
     }
+
     None
 }
 

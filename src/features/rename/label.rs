@@ -4,6 +4,7 @@ use lsp_types::{Range, RenameParams, TextEdit, WorkspaceEdit};
 use rowan::ast::AstNode;
 
 use crate::{
+    db::{DocumentDatabase, SyntaxDatabase, SyntaxTree, WorkspaceDatabase},
     features::cursor::{CursorContext, HasPosition},
     syntax::latex,
     LineIndexExt,
@@ -15,8 +16,8 @@ pub fn prepare_label_rename<P: HasPosition>(context: &CursorContext<P>) -> Optio
     Some(
         context
             .request
-            .main_document()
-            .line_index
+            .db
+            .line_index(context.request.document)
             .line_col_lsp_range(range),
     )
 }
@@ -26,17 +27,23 @@ pub fn rename_label(context: &CursorContext<RenameParams>) -> Option<WorkspaceEd
     let (name_text, _) = context.find_label_name_key()?;
 
     let mut changes = HashMap::new();
-    for document in context.request.workspace.documents_by_uri.values() {
-        if let Some(data) = document.data.as_latex() {
+    for document in context
+        .request
+        .db
+        .compilation_unit(context.request.document)
+    {
+        if let SyntaxTree::Latex(green) = context.request.db.syntax_tree(document) {
             let mut edits = Vec::new();
-            for node in latex::SyntaxNode::new_root(data.green.clone()).descendants() {
+            for node in latex::SyntaxNode::new_root(green).descendants() {
                 if let Some(range) = latex::LabelDefinition::cast(node.clone())
                     .and_then(|label| label.name())
                     .and_then(|name| name.key())
                     .filter(|name| name.to_string() == name_text)
                     .map(|name| {
-                        document
-                            .line_index
+                        context
+                            .request
+                            .db
+                            .line_index(document)
                             .line_col_lsp_range(latex::small_range(&name))
                     })
                 {
@@ -52,8 +59,10 @@ pub fn rename_label(context: &CursorContext<RenameParams>) -> Option<WorkspaceEd
                     .flat_map(|label| label.keys())
                     .filter(|name| name.to_string() == name_text)
                     .map(|name| {
-                        document
-                            .line_index
+                        context
+                            .request
+                            .db
+                            .line_index(document)
                             .line_col_lsp_range(latex::small_range(&name))
                     })
                     .for_each(|range| {
@@ -70,8 +79,10 @@ pub fn rename_label(context: &CursorContext<RenameParams>) -> Option<WorkspaceEd
                         .filter(|name| name.to_string() == name_text)
                     {
                         edits.push(TextEdit::new(
-                            document
-                                .line_index
+                            context
+                                .request
+                                .db
+                                .line_index(document)
                                 .line_col_lsp_range(latex::small_range(&name1)),
                             context.request.params.new_name.clone(),
                         ));
@@ -83,8 +94,10 @@ pub fn rename_label(context: &CursorContext<RenameParams>) -> Option<WorkspaceEd
                         .filter(|name| name.to_string() == name_text)
                     {
                         edits.push(TextEdit::new(
-                            document
-                                .line_index
+                            context
+                                .request
+                                .db
+                                .line_index(document)
                                 .line_col_lsp_range(latex::small_range(&name2)),
                             context.request.params.new_name.clone(),
                         ));
@@ -92,7 +105,16 @@ pub fn rename_label(context: &CursorContext<RenameParams>) -> Option<WorkspaceEd
                 }
             }
 
-            changes.insert(document.uri.as_ref().clone(), edits);
+            changes.insert(
+                context
+                    .request
+                    .db
+                    .lookup_intern_document(document)
+                    .uri
+                    .as_ref()
+                    .clone(),
+                edits,
+            );
         }
     }
 

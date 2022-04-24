@@ -1,41 +1,60 @@
 use lsp_types::{GotoDefinitionParams, LocationLink};
 use rowan::ast::AstNode;
 
-use crate::{features::cursor::CursorContext, syntax::latex, LineIndexExt};
+use crate::{
+    db::{DocumentDatabase, SyntaxDatabase, SyntaxTree, WorkspaceDatabase},
+    features::cursor::CursorContext,
+    syntax::latex,
+    LineIndexExt,
+};
 
 pub fn goto_command_definition(
     context: &CursorContext<GotoDefinitionParams>,
 ) -> Option<Vec<LocationLink>> {
-    let main_document = context.request.main_document();
-
     let name = context
         .cursor
         .as_latex()
         .filter(|token| token.kind().is_command_name())?;
 
-    let origin_selection_range = main_document
-        .line_index
+    let origin_selection_range = context
+        .request
+        .db
+        .line_index(context.request.document)
         .line_col_lsp_range(name.text_range());
 
-    for document in context.request.workspace.documents_by_uri.values() {
-        if let Some(data) = document.data.as_latex() {
-            for node in latex::SyntaxNode::new_root(data.green.clone()).descendants() {
+    for document in context
+        .request
+        .db
+        .compilation_unit(context.request.document)
+    {
+        if let SyntaxTree::Latex(green) = context.request.db.syntax_tree(document) {
+            for node in latex::SyntaxNode::new_root(green).descendants() {
                 if let Some(defintion) = latex::CommandDefinition::cast(node).filter(|def| {
                     def.name()
                         .and_then(|name| name.command())
                         .map_or(false, |node| node.text() == name.text())
                 }) {
-                    let target_selection_range = document
-                        .line_index
+                    let target_selection_range = context
+                        .request
+                        .db
+                        .line_index(document)
                         .line_col_lsp_range(defintion.name()?.command()?.text_range());
 
-                    let target_range = document
-                        .line_index
+                    let target_range = context
+                        .request
+                        .db
+                        .line_index(document)
                         .line_col_lsp_range(latex::small_range(&defintion));
 
                     return Some(vec![LocationLink {
                         origin_selection_range: Some(origin_selection_range),
-                        target_uri: document.uri.as_ref().clone(),
+                        target_uri: context
+                            .request
+                            .db
+                            .lookup_intern_document(document)
+                            .uri
+                            .as_ref()
+                            .clone(),
                         target_range,
                         target_selection_range,
                     }]);

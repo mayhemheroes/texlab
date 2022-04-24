@@ -1,6 +1,8 @@
 use lsp_types::CompletionParams;
 
-use crate::{component_db::COMPONENT_DATABASE, features::cursor::CursorContext};
+use crate::{
+    component_db::COMPONENT_DATABASE, db::WorkspaceDatabase, features::cursor::CursorContext,
+};
 
 use super::types::{InternalCompletionItem, InternalCompletionItemData};
 
@@ -10,7 +12,13 @@ pub fn complete_component_commands<'a>(
 ) -> Option<()> {
     let range = context.cursor.command_range(context.offset)?;
 
-    for component in COMPONENT_DATABASE.linked_components(&context.request.workspace) {
+    for component in COMPONENT_DATABASE.linked_components(
+        context.request.db,
+        context
+            .request
+            .db
+            .compilation_unit(context.request.document),
+    ) {
         for command in &component.commands {
             items.push(InternalCompletionItem::new(
                 range,

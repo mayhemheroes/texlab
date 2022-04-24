@@ -2,6 +2,7 @@ use lsp_types::{DocumentFormattingParams, TextEdit};
 use rowan::{ast::AstNode, NodeOrToken};
 
 use crate::{
+    db::{ClientOptionsDatabase, DocumentDatabase, SyntaxDatabase},
     features::FeatureRequest,
     syntax::bibtex::{self, HasType},
     LineIndex, LineIndexExt,
@@ -19,27 +20,25 @@ pub fn format_bibtex_internal(
         indent.push('\t');
     }
 
-    let line_length = {
-        request
-            .workspace
-            .environment
-            .options
-            .formatter_line_length
-            .map(|value| {
-                if value <= 0 {
-                    usize::MAX
-                } else {
-                    value as usize
-                }
-            })
-            .unwrap_or(80)
-    };
+    let line_length = request
+        .db
+        .client_options()
+        .formatter_line_length
+        .map(|value| {
+            if value <= 0 {
+                usize::MAX
+            } else {
+                value as usize
+            }
+        })
+        .unwrap_or(80);
 
-    let document = request.main_document();
-    let data = document.data.as_bibtex()?;
+    let green = request.db.syntax_tree(request.document).into_bibtex()?;
+    let line_index = request.db.line_index(request.document);
+
     let mut edits = Vec::new();
 
-    for node in bibtex::SyntaxNode::new_root(data.green.clone()).children() {
+    for node in bibtex::SyntaxNode::new_root(green).children() {
         let range = if let Some(entry) = bibtex::Entry::cast(node.clone()) {
             bibtex::small_range(&entry)
         } else if let Some(string) = bibtex::String::cast(node.clone()) {
@@ -54,12 +53,12 @@ pub fn format_bibtex_internal(
             indent.clone(),
             request.params.options.tab_size,
             line_length,
-            &document.line_index,
+            &line_index,
         );
 
         formatter.visit_node(node);
         edits.push(TextEdit {
-            range: document.line_index.line_col_lsp_range(range),
+            range: line_index.line_col_lsp_range(range),
             new_text: formatter.output,
         });
     }

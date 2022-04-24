@@ -14,11 +14,7 @@ mod reference;
 mod rename;
 mod symbol;
 
-use std::sync::Arc;
-
-use lsp_types::Url;
-
-use crate::{Document, Workspace};
+use crate::db::{Document, RootDatabase};
 
 #[cfg(feature = "completion")]
 pub use self::completion::{complete, CompletionItemData, COMPLETION_LIMIT};
@@ -36,17 +32,10 @@ pub use self::{
     symbol::{find_document_symbols, find_workspace_symbols},
 };
 
-#[derive(Clone)]
-pub struct FeatureRequest<P> {
+pub struct FeatureRequest<'a, P> {
     pub params: P,
-    pub workspace: Workspace,
-    pub uri: Arc<Url>,
-}
-
-impl<P> FeatureRequest<P> {
-    pub fn main_document(&self) -> &Document {
-        &self.workspace.documents_by_uri[&self.uri]
-    }
+    pub db: &'a RootDatabase,
+    pub document: Document,
 }
 
 #[cfg(test)]
@@ -57,12 +46,19 @@ mod testing {
         ClientCapabilities, ClientInfo, CompletionParams, DocumentFormattingParams,
         DocumentHighlightParams, DocumentLinkParams, FoldingRangeParams, FormattingOptions,
         GotoDefinitionParams, HoverParams, PartialResultParams, Position, ReferenceContext,
-        ReferenceParams, RenameParams, TextDocumentIdentifier, TextDocumentPositionParams,
+        ReferenceParams, RenameParams, TextDocumentIdentifier, TextDocumentPositionParams, Url,
         WorkDoneProgressParams,
     };
     use typed_builder::TypedBuilder;
 
-    use crate::{distro::Resolver, DocumentLanguage, Environment, Options, Workspace};
+    use crate::{
+        db::{
+            ClientCapabilitiesDatabase, ClientInfoDatabase, ClientOptionsDatabase, DistroDatabase,
+            DocumentData, DocumentDatabase, DocumentVisibility,
+        },
+        distro::Resolver,
+        DocumentLanguage, Options,
+    };
 
     use super::*;
 
@@ -122,38 +118,38 @@ mod testing {
             TextDocumentIdentifier::new(uri.as_ref().clone())
         }
 
-        fn workspace(&self) -> Workspace {
-            let mut workspace = Workspace::new(Environment {
-                client_capabilities: Arc::new(self.client_capabilities.clone()),
-                client_info: self.client_info.clone().map(Arc::new),
-                options: Arc::new(self.options()),
-                resolver: Arc::new(self.resolver.clone()),
-                ..Environment::default()
-            });
+        fn db(&self) -> RootDatabase {
+            let mut db = RootDatabase::default();
+            db.set_client_capabilities(Arc::new(self.client_capabilities.clone()));
+            db.set_client_info(self.client_info.clone().map(Arc::new));
+            db.set_client_options(Arc::new(self.options()));
+            db.set_distro_resolver(Arc::new(self.resolver.clone()));
 
             for (name, source_code) in &self.files {
                 let uri = self.uri(name);
                 let path = uri.to_file_path().unwrap();
-                let text = Arc::new(source_code.trim().to_string());
+                let source_code = Arc::new(source_code.trim().to_string());
                 let language = DocumentLanguage::by_path(&path).expect("unknown document language");
-                let document = workspace.open(uri, text, language).unwrap();
-                workspace.viewport.insert(document.uri);
+                let document = db.intern_document(DocumentData { uri });
+                db.upsert_document(document, source_code, language);
+                db.set_visibility(document, DocumentVisibility::Visible);
             }
 
-            workspace
+            db
         }
 
-        fn request<P>(&self, params: P) -> FeatureRequest<P> {
-            let workspace = self.workspace();
+        fn request<P>(&self, params: P) -> FeatureRequest<'static, P> {
+            let db = self.db();
             let uri = self.uri(self.main);
+            let document = db.intern_document(DocumentData { uri });
             FeatureRequest {
                 params,
-                workspace: workspace.slice(&uri),
-                uri,
+                db: Box::leak(Box::new(db)), // TODO: Fix this
+                document,
             }
         }
 
-        pub fn link(self) -> FeatureRequest<DocumentLinkParams> {
+        pub fn link(self) -> FeatureRequest<'static, DocumentLinkParams> {
             let text_document = self.identifier();
             let params = DocumentLinkParams {
                 text_document,
@@ -163,7 +159,7 @@ mod testing {
             self.request(params)
         }
 
-        pub fn folding(self) -> FeatureRequest<FoldingRangeParams> {
+        pub fn folding(self) -> FeatureRequest<'static, FoldingRangeParams> {
             let text_document = self.identifier();
             let params = FoldingRangeParams {
                 text_document,
@@ -173,7 +169,7 @@ mod testing {
             self.request(params)
         }
 
-        pub fn reference(self) -> FeatureRequest<ReferenceParams> {
+        pub fn reference(self) -> FeatureRequest<'static, ReferenceParams> {
             let params = ReferenceParams {
                 text_document_position: TextDocumentPositionParams::new(
                     self.identifier(),
@@ -188,7 +184,7 @@ mod testing {
             self.request(params)
         }
 
-        pub fn hover(self) -> FeatureRequest<HoverParams> {
+        pub fn hover(self) -> FeatureRequest<'static, HoverParams> {
             let params = HoverParams {
                 text_document_position_params: TextDocumentPositionParams::new(
                     self.identifier(),
@@ -199,7 +195,7 @@ mod testing {
             self.request(params)
         }
 
-        pub fn completion(self) -> FeatureRequest<CompletionParams> {
+        pub fn completion(self) -> FeatureRequest<'static, CompletionParams> {
             let params = CompletionParams {
                 text_document_position: TextDocumentPositionParams::new(
                     self.identifier(),
@@ -213,7 +209,7 @@ mod testing {
             self.request(params)
         }
 
-        pub fn definition(self) -> FeatureRequest<GotoDefinitionParams> {
+        pub fn definition(self) -> FeatureRequest<'static, GotoDefinitionParams> {
             let params = GotoDefinitionParams {
                 text_document_position_params: TextDocumentPositionParams::new(
                     self.identifier(),
@@ -225,7 +221,7 @@ mod testing {
             self.request(params)
         }
 
-        pub fn rename(self) -> FeatureRequest<RenameParams> {
+        pub fn rename(self) -> FeatureRequest<'static, RenameParams> {
             let params = RenameParams {
                 text_document_position: TextDocumentPositionParams::new(
                     self.identifier(),
@@ -237,7 +233,7 @@ mod testing {
             self.request(params)
         }
 
-        pub fn formatting(self) -> FeatureRequest<DocumentFormattingParams> {
+        pub fn formatting(self) -> FeatureRequest<'static, DocumentFormattingParams> {
             let params = DocumentFormattingParams {
                 text_document: self.identifier(),
                 work_done_progress_params: WorkDoneProgressParams::default(),
@@ -246,7 +242,7 @@ mod testing {
             self.request(params)
         }
 
-        pub fn highlight(self) -> FeatureRequest<DocumentHighlightParams> {
+        pub fn highlight(self) -> FeatureRequest<'static, DocumentHighlightParams> {
             let params = DocumentHighlightParams {
                 text_document_position_params: TextDocumentPositionParams::new(
                     self.identifier(),

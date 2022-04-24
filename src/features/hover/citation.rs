@@ -1,10 +1,14 @@
 use lsp_types::{Hover, HoverContents, HoverParams};
 
-use crate::{citation, features::cursor::CursorContext, syntax::bibtex, LineIndexExt};
+use crate::{
+    citation,
+    db::{DocumentDatabase, SyntaxDatabase, WorkspaceDatabase},
+    features::cursor::CursorContext,
+    syntax::bibtex,
+    LineIndexExt,
+};
 
 pub fn find_citation_hover(context: &CursorContext<HoverParams>) -> Option<Hover> {
-    let main_document = context.request.main_document();
-
     let (key_text, key_range) = context
         .find_citation_key_word()
         .or_else(|| context.find_citation_key_command())
@@ -12,20 +16,22 @@ pub fn find_citation_hover(context: &CursorContext<HoverParams>) -> Option<Hover
 
     let contents = context
         .request
-        .workspace
-        .documents_by_uri
-        .values()
-        .find_map(|document| {
-            document.data.as_bibtex().and_then(|data| {
-                citation::render_citation(
-                    &bibtex::SyntaxNode::new_root(data.green.clone()),
-                    &key_text,
-                )
-            })
+        .db
+        .compilation_unit(context.request.document)
+        .into_iter()
+        .filter_map(|document| context.request.db.syntax_tree(document).into_bibtex())
+        .find_map(|green| {
+            citation::render_citation(&bibtex::SyntaxNode::new_root(green), &key_text)
         })?;
 
     Some(Hover {
-        range: Some(main_document.line_index.line_col_lsp_range(key_range)),
+        range: Some(
+            context
+                .request
+                .db
+                .line_index(context.request.document)
+                .line_col_lsp_range(key_range),
+        ),
         contents: HoverContents::Markup(contents),
     })
 }

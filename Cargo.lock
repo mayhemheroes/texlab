@@ -195,7 +195,7 @@ dependencies = [
  "log",
  "parking_lot 0.11.2",
  "rand",
- "salsa",
+ "salsa 0.15.2",
  "serde",
  "string-interner",
  "thiserror",
@@ -212,7 +212,7 @@ dependencies = [
  "fnv",
  "indexmap",
  "log",
- "salsa",
+ "salsa 0.15.2",
  "serde",
  "serde_derive",
  "string-interner",
@@ -264,7 +264,7 @@ dependencies = [
  "log",
  "nom",
  "petgraph 0.5.1",
- "salsa",
+ "salsa 0.15.2",
  "serde",
  "serde_derive",
  "smallvec",
@@ -1528,7 +1528,24 @@ dependencies = [
  "oorandom",
  "parking_lot 0.11.2",
  "rustc-hash",
- "salsa-macros",
+ "salsa-macros 0.15.2",
+ "smallvec",
+]
+
+[[package]]
+name = "salsa"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b84d9f96071f3f3be0dc818eae3327625d8ebc95b58da37d6850724f31d3403"
+dependencies = [
+ "crossbeam-utils 0.8.6",
+ "indexmap",
+ "lock_api",
+ "log",
+ "oorandom",
+ "parking_lot 0.11.2",
+ "rustc-hash",
+ "salsa-macros 0.16.0",
  "smallvec",
 ]
 
@@ -1537,6 +1554,18 @@ name = "salsa-macros"
 version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1c3aec007c63c4ed4cd7a018529fb0b5575c4562575fc6a40d6cd2ae0b792ef"
+dependencies = [
+ "heck 0.3.3",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "salsa-macros"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd3904a4ba0a9d0211816177fd34b04c7095443f8cdacd11175064fe541c8fe2"
 dependencies = [
  "heck 0.3.3",
  "proc-macro2",
@@ -1851,6 +1880,7 @@ dependencies = [
  "regex",
  "rowan",
  "rustc-hash",
+ "salsa 0.16.1",
  "serde",
  "serde_json",
  "serde_repr",
