@@ -25,7 +25,7 @@ use crate::{
         BuildStatus, FeatureRequest, ForwardSearchResult, ForwardSearchStatus,
     },
     req_queue::{IncomingData, ReqQueue},
-    DocumentLanguage, LineIndex, LineIndexExt, Options,
+    LineIndex, LineIndexExt, Options,
 };
 
 #[derive(Debug)]

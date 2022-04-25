@@ -8,9 +8,9 @@ use rowan::{TextLen, TextRange};
 use tempfile::tempdir;
 
 use crate::{
-    db::{ClientOptionsDatabase, DocumentDatabase},
+    db::{ClientOptionsDatabase, DocumentDatabase, DocumentLanguage},
     features::FeatureRequest,
-    DocumentLanguage, LineIndexExt,
+    LineIndexExt,
 };
 
 pub fn format_with_latexindent(

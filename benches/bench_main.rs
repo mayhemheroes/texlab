@@ -5,10 +5,9 @@ use lsp_types::{
     CompletionParams, Position, TextDocumentIdentifier, TextDocumentPositionParams, Url,
 };
 use texlab::{
-    db::{DocumentData, DocumentDatabase, RootDatabase},
+    db::{DocumentData, DocumentDatabase, DocumentLanguage, RootDatabase},
     features::FeatureRequest,
     syntax::latex,
-    DocumentLanguage,
 };
 
 fn criterion_benchmark(c: &mut Criterion) {

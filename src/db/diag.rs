@@ -3,7 +3,7 @@ mod syntax;
 
 use lsp_types::Diagnostic;
 
-use crate::DocumentLanguage;
+use crate::db::DocumentLanguage;
 
 use super::{Document, DocumentDatabase, SyntaxDatabase, WorkspaceDatabase};
 

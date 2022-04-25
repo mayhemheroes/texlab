@@ -24,10 +24,9 @@ use crate::{
     client,
     db::{
         AnalysisDatabase, ClientCapabilitiesDatabase, ClientOptionsDatabase, DocumentDatabase,
-        WorkspaceDatabase,
+        DocumentLanguage, WorkspaceDatabase,
     },
     req_queue::ReqQueue,
-    DocumentLanguage,
 };
 
 use super::{forward_search, FeatureRequest};

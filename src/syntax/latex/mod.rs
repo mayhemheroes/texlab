@@ -1,11 +1,9 @@
-mod analysis;
 mod cst;
 mod kind;
 mod lexer;
 mod parser;
 
 pub use self::{
-    analysis::*,
     cst::*,
     kind::SyntaxKind::{self, *},
     parser::{parse, Parse},

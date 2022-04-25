@@ -110,7 +110,7 @@ mod tests {
     use anyhow::Result;
     use lsp_types::Url;
 
-    use crate::DocumentLanguage;
+    use crate::db::DocumentLanguage;
 
     use super::*;
 

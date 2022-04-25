@@ -1,15 +1,12 @@
 use std::sync::Arc;
 
-use crate::{
-    syntax::{
-        bibtex,
-        build_log::{self, BuildError},
-        latex,
-    },
-    DocumentLanguage,
+use crate::syntax::{
+    bibtex,
+    build_log::{self, BuildError},
+    latex,
 };
 
-use super::{Document, DocumentDatabase};
+use super::{Document, DocumentDatabase, DocumentLanguage};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum SyntaxTree {

@@ -56,10 +56,10 @@ mod testing {
     use crate::{
         db::{
             ClientCapabilitiesDatabase, ClientInfoDatabase, ClientOptionsDatabase, DistroDatabase,
-            DocumentData, DocumentDatabase, DocumentVisibility,
+            DocumentData, DocumentDatabase, DocumentLanguage, DocumentVisibility,
         },
         distro::Resolver,
-        DocumentLanguage, Options,
+        Options,
     };
 
     use super::*;

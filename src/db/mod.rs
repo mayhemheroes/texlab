@@ -18,7 +18,7 @@ use rustc_hash::FxHashSet;
 use crate::{
     component_db::COMPONENT_DATABASE,
     distro::{DistributionKind, Resolver},
-    DocumentLanguage, Options,
+    Options,
 };
 
 pub use self::{
