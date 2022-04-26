@@ -59,6 +59,7 @@ pub fn execute_forward_search(
         .implicit_links
         .pdf
         .iter()
+        .map(|document| request.db.lookup_intern_document(*document).uri)
         .filter_map(|uri| uri.to_file_path().ok())
         .find(|path| path.exists())?;
 

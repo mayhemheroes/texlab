@@ -21,14 +21,7 @@ pub fn analyze_build_log_static(
                 .uri
                 .as_str()
                 .ends_with(".aux")
-                && db
-                    .extras(root)
-                    .implicit_links
-                    .log
-                    .iter()
-                    .cloned()
-                    .map(|uri| db.intern_document(DocumentData { uri }))
-                    .any(|u| u == document)
+                && db.extras(root).implicit_links.log.contains(&document)
         }) {
             let base_path = PathBuf::from(db.lookup_intern_document(root_document).uri.path());
 

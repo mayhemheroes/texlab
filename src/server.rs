@@ -372,7 +372,7 @@ impl Server {
             self.db.set_source_code(document, Arc::clone(&new_text));
 
             self.state.build_engine.positions_by_uri.insert(
-                document.lookup(&self.db).uri,
+                self.db.lookup_intern_document(document).uri,
                 Position::new(
                     old_text
                         .lines()
@@ -387,9 +387,9 @@ impl Server {
                 self.run_chktex(document);
             }
         } else {
-            let uri = document.lookup(&self.db).uri;
+            let uri = self.db.lookup_intern_document(document).uri;
             if uri.scheme() == "file" {
-                if let Ok(path) = document.lookup(&self.db).uri.to_file_path() {
+                if let Ok(path) = uri.to_file_path() {
                     let _ = self.db.insert_hidden_document(&path);
                 }
             }
@@ -590,7 +590,7 @@ impl Server {
         ));
 
         self.state.build_engine.positions_by_uri.insert(
-            document.lookup(&self.db).uri,
+            self.db.lookup_intern_document(document).uri,
             params.text_document_position.position,
         );
 
@@ -657,7 +657,7 @@ impl Server {
         ));
 
         self.state.build_engine.positions_by_uri.insert(
-            document.lookup(&self.db).uri,
+            self.db.lookup_intern_document(document).uri,
             params.text_document_position_params.position,
         );
 

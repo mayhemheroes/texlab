@@ -56,7 +56,7 @@ mod testing {
     use crate::{
         db::{
             ClientCapabilitiesDatabase, ClientInfoDatabase, ClientOptionsDatabase, DistroDatabase,
-            DocumentData, DocumentDatabase, DocumentLanguage, DocumentVisibility,
+            DocumentDatabase, DocumentLanguage, DocumentVisibility,
         },
         distro::Resolver,
         Options,
@@ -91,7 +91,7 @@ mod testing {
         #[builder(default)]
         resolver: Resolver,
 
-        #[builder(default=std::env::temp_dir())]
+        #[builder(default = std::env::temp_dir())]
         current_directory: PathBuf,
 
         #[builder(default, setter(strip_option))]
@@ -132,7 +132,7 @@ mod testing {
                 let path = uri.to_file_path().unwrap();
                 let source_code = Arc::new(source_code.trim().to_string());
                 let language = DocumentLanguage::by_path(&path).expect("unknown document language");
-                let document = db.intern_document(DocumentData { uri });
+                let document = db.intern_document(uri.into());
                 db.upsert_document(document, source_code, language);
                 db.set_visibility(document, DocumentVisibility::Visible);
             }
@@ -143,7 +143,7 @@ mod testing {
         fn request<P>(&self, params: P) -> FeatureRequest<'static, P> {
             let db = self.db();
             let uri = self.uri(self.main);
-            let document = db.intern_document(DocumentData { uri });
+            let document = db.intern_document(uri.into());
             FeatureRequest {
                 params,
                 db: Box::leak(Box::new(db)), // TODO: Fix this

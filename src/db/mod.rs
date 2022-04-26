@@ -86,10 +86,8 @@ impl RootDatabase {
     }
 
     pub fn insert_hidden_document(&mut self, path: &Path) -> Result<()> {
-        let uri = Arc::new(Url::from_file_path(&path).unwrap());
-        let document = self.intern_document(DocumentData {
-            uri: Arc::clone(&uri),
-        });
+        let uri = Url::from_file_path(&path).unwrap();
+        let document = self.intern_document(uri.into());
 
         if self.all_documents().contains(&document) {
             return Ok(());
@@ -107,11 +105,11 @@ impl RootDatabase {
         let all_document_paths = self
             .all_documents()
             .into_iter()
-            .map(|document| document.lookup(self))
-            .filter_map(|data| data.uri.to_file_path().ok())
+            .map(|document| self.lookup_intern_document(document).uri)
+            .filter_map(|uri| uri.to_file_path().ok())
             .collect::<FxHashSet<_>>();
 
-        let document_uri = document.lookup(self).uri;
+        let document_uri = self.lookup_intern_document(document).uri;
         if document_uri.scheme() == "file" {
             if let Ok(mut path) = document_uri.to_file_path() {
                 while path.pop() && self.find_parent(document).is_none() {
@@ -150,12 +148,16 @@ impl RootDatabase {
         }
 
         all_targets.into_iter().for_each(|targets| {
-            for path in targets
-                .iter()
-                .filter(|uri| uri.scheme() == "file" && uri.fragment().is_none())
-                .filter_map(|uri| uri.to_file_path().ok())
-            {
-                if self.insert_hidden_document(&path).is_ok() {
+            for target in targets.iter().copied() {
+                let uri = self.lookup_intern_document(target).uri;
+                if uri.scheme() == "file"
+                    && uri.fragment().is_none()
+                    && uri
+                        .to_file_path()
+                        .ok()
+                        .and_then(|path| self.insert_hidden_document(&path).ok())
+                        .is_some()
+                {
                     break;
                 }
             }

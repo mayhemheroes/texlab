@@ -1,7 +1,7 @@
 use lsp_types::{DocumentLink, DocumentLinkParams};
 
 use crate::{
-    db::{AnalysisDatabase, DocumentData, DocumentDatabase},
+    db::{AnalysisDatabase, DocumentDatabase},
     LineIndexExt,
 };
 
@@ -11,12 +11,7 @@ pub fn find_document_links(request: FeatureRequest<DocumentLinkParams>) -> Vec<D
     let mut links = Vec::new();
 
     for include in &request.db.extras(request.document).explicit_links {
-        for target in include
-            .targets
-            .iter()
-            .cloned()
-            .map(|uri| request.db.intern_document(DocumentData { uri }))
-        {
+        for target in include.targets.iter().copied() {
             if request.db.all_documents().contains(&target) {
                 links.push(DocumentLink {
                     range: request

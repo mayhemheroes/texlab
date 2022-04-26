@@ -197,7 +197,7 @@ impl BuildEngine {
                 params: TextDocumentPositionParams {
                     position: self
                         .positions_by_uri
-                        .get(&request.document.lookup(request.db).uri)
+                        .get(&request.db.lookup_intern_document(request.document).uri)
                         .map(|guard| *guard)
                         .unwrap_or_default(),
                     text_document: TextDocumentIdentifier::new(

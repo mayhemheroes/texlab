@@ -1,9 +1,7 @@
 use petgraph::{algo::tarjan_scc, Directed, Graph};
 use rustc_hash::FxHashSet;
 
-use crate::db::{
-    AnalysisDatabase, Document, DocumentData, DocumentDatabase, RootDatabase, WorkspaceDatabase,
-};
+use crate::db::{AnalysisDatabase, Document, DocumentDatabase, RootDatabase, WorkspaceDatabase};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ProjectOrdering {
@@ -38,12 +36,7 @@ impl From<&RootDatabase> for ProjectOrdering {
 
                 ordering.push(document);
                 for link in db.extras(document).explicit_links.iter().rev() {
-                    for target in link
-                        .targets
-                        .iter()
-                        .cloned()
-                        .map(|uri| db.intern_document(DocumentData { uri }))
-                    {
+                    for target in link.targets.iter().copied() {
                         if db.all_documents().contains(&target) {
                             stack.push(target);
                         }
@@ -82,12 +75,7 @@ fn build_dependency_graph(
     for (i, document) in documents.iter().copied().enumerate() {
         let extras = db.extras(document);
         for link in &extras.explicit_links {
-            for target in link
-                .targets
-                .iter()
-                .cloned()
-                .map(|uri| db.intern_document(DocumentData { uri }))
-            {
+            for target in link.targets.iter().copied() {
                 if let Some(j) = documents
                     .iter()
                     .copied()
@@ -118,9 +106,9 @@ mod tests {
     fn test_no_cycles() -> Result<()> {
         let mut db = RootDatabase::default();
 
-        let a = db.intern_document(DocumentData::from(Url::parse("http://example.com/a.tex")?));
-        let b = db.intern_document(DocumentData::from(Url::parse("http://example.com/b.tex")?));
-        let c = db.intern_document(DocumentData::from(Url::parse("http://example.com/c.tex")?));
+        let a = db.intern_document(Url::parse("http://example.com/a.tex")?.into());
+        let b = db.intern_document(Url::parse("http://example.com/b.tex")?.into());
+        let c = db.intern_document(Url::parse("http://example.com/c.tex")?.into());
 
         db.upsert_document(a, Arc::new(String::new()), DocumentLanguage::Latex);
 
@@ -144,9 +132,9 @@ mod tests {
     fn test_cycles() -> Result<()> {
         let mut db = RootDatabase::default();
 
-        let a = db.intern_document(DocumentData::from(Url::parse("http://example.com/a.tex")?));
-        let b = db.intern_document(DocumentData::from(Url::parse("http://example.com/b.tex")?));
-        let c = db.intern_document(DocumentData::from(Url::parse("http://example.com/c.tex")?));
+        let a = db.intern_document(Url::parse("http://example.com/a.tex")?.into());
+        let b = db.intern_document(Url::parse("http://example.com/b.tex")?.into());
+        let c = db.intern_document(Url::parse("http://example.com/c.tex")?.into());
 
         db.upsert_document(
             a,
@@ -178,10 +166,10 @@ mod tests {
     fn test_multiple_roots() -> Result<()> {
         let mut db = RootDatabase::default();
 
-        let a = db.intern_document(DocumentData::from(Url::parse("http://example.com/a.tex")?));
-        let b = db.intern_document(DocumentData::from(Url::parse("http://example.com/b.tex")?));
-        let c = db.intern_document(DocumentData::from(Url::parse("http://example.com/c.tex")?));
-        let d = db.intern_document(DocumentData::from(Url::parse("http://example.com/d.tex")?));
+        let a = db.intern_document(Url::parse("http://example.com/a.tex")?.into());
+        let b = db.intern_document(Url::parse("http://example.com/b.tex")?.into());
+        let c = db.intern_document(Url::parse("http://example.com/c.tex")?.into());
+        let d = db.intern_document(Url::parse("http://example.com/d.tex")?.into());
 
         db.upsert_document(
             a,

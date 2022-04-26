@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use rowan::ast::AstNode;
 
-use crate::{db::Document, syntax::latex};
+use crate::{
+    db::{Document, DocumentData},
+    syntax::latex,
+};
 
 use super::{
     distro_file::resolve_distro_file, AnalysisDatabase, ExplicitLink, ExplicitLinkKind, Extras,
@@ -33,15 +36,15 @@ pub fn analyze_include(
     let base_uri = db.base_uri(document);
     for path in include.path_list()?.keys() {
         let stem = path.to_string();
-        let mut targets = vec![Arc::new(base_uri.join(&stem).ok()?)];
+        let mut targets = vec![db.intern_document(DocumentData::from(base_uri.join(&stem).ok()?))];
         for extension in extensions {
             let path = format!("{}.{}", stem, extension);
-            targets.push(Arc::new(base_uri.join(&path).ok()?));
+            targets.push(db.intern_document(DocumentData::from(base_uri.join(&path).ok()?)));
         }
 
         resolve_distro_file(db.distro_resolver().as_ref(), &stem, extensions)
             .into_iter()
-            .for_each(|target| targets.push(Arc::new(target)));
+            .for_each(|target| targets.push(db.intern_document(DocumentData::from(target))));
 
         extras.explicit_links.push(ExplicitLink {
             kind,
@@ -73,8 +76,10 @@ pub fn analyze_import(
 
     let file = import.file()?.key()?;
     let stem = file.to_string();
-    targets.push(Arc::new(directory.join(&stem).ok()?));
-    targets.push(Arc::new(directory.join(&format!("{}.tex", stem)).ok()?));
+    targets.push(db.intern_document(DocumentData::from(directory.join(&stem).ok()?)));
+    targets.push(db.intern_document(DocumentData::from(
+        directory.join(&format!("{}.tex", stem)).ok()?,
+    )));
 
     extras.explicit_links.push(ExplicitLink {
         stem: stem.into(),

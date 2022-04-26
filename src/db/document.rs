@@ -1,5 +1,6 @@
 use std::{ffi::OsStr, path::Path, sync::Arc};
 
+use derive_more::From;
 use lsp_types::Url;
 
 use crate::LineIndex;
@@ -17,21 +18,10 @@ impl salsa::InternKey for Document {
     }
 }
 
-impl Document {
-    pub fn lookup(self, db: &dyn DocumentDatabase) -> DocumentData {
-        db.lookup_intern_document(self)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash, From)]
+#[from(forward)]
 pub struct DocumentData {
     pub uri: Arc<Url>,
-}
-
-impl From<Url> for DocumentData {
-    fn from(uri: Url) -> Self {
-        Self { uri: Arc::new(uri) }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]

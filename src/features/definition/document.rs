@@ -1,7 +1,7 @@
 use lsp_types::{GotoDefinitionParams, LocationLink, Range};
 
 use crate::{
-    db::{AnalysisDatabase, DocumentData, DocumentDatabase},
+    db::{AnalysisDatabase, DocumentDatabase},
     features::cursor::CursorContext,
     LineIndexExt, RangeExt,
 };
@@ -17,12 +17,7 @@ pub fn goto_document_definition(
         .iter()
         .filter(|link| link.stem_range.contains_inclusive(context.offset))
     {
-        for target in include
-            .targets
-            .iter()
-            .cloned()
-            .map(|uri| context.request.db.intern_document(DocumentData { uri }))
-        {
+        for target in include.targets.iter().copied() {
             if context.request.db.all_documents().contains(&target) {
                 return Some(vec![LocationLink {
                     origin_selection_range: Some(

@@ -24,13 +24,11 @@ fn compilation_unit(db: &dyn WorkspaceDatabase, document: Document) -> im::Vecto
                 }
 
                 for targets in all_targets {
-                    for target in targets {
-                        if let Some(j) = all_documents.iter().copied().position(|d| {
-                            db.lookup_intern_document(d).uri.as_ref() == target.as_ref()
-                        }) {
-                            edges.push((i, j, ()));
-                            break;
-                        }
+                    if let Some(j) = targets
+                        .iter()
+                        .find_map(|target| all_documents.iter().position(|d| d == target))
+                    {
+                        edges.push((i, j, ()));
                     }
                 }
             }

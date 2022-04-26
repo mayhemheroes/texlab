@@ -1,8 +1,6 @@
-use std::sync::Arc;
-
 use lsp_types::Url;
 
-use crate::db::Document;
+use crate::db::{Document, DocumentData};
 
 use super::{AnalysisDatabase, Extras};
 
@@ -16,9 +14,12 @@ fn find_by_extension(
     db: &dyn AnalysisDatabase,
     document: Document,
     extension: &str,
-) -> Option<Vec<Arc<Url>>> {
+) -> Option<Vec<Document>> {
     let document_uri = db.lookup_intern_document(document).uri;
-    let mut targets = vec![Arc::new(with_extension(&document_uri, extension)?)];
+    let mut targets = vec![db.intern_document(DocumentData::from(with_extension(
+        &document_uri,
+        extension,
+    )?))];
     if document_uri.scheme() == "file" {
         let file_path = document_uri.to_file_path().ok()?;
         let file_stem = file_path.file_stem()?;
@@ -26,12 +27,12 @@ fn find_by_extension(
 
         if let Some(root_dir) = db.root_directory() {
             let path = root_dir.join(&aux_name);
-            targets.push(Arc::new(Url::from_file_path(path).ok()?));
+            targets.push(db.intern_document(DocumentData::from(Url::from_file_path(path).ok()?)));
         }
 
         if let Some(aux_dir) = db.aux_directory() {
             let path = aux_dir.join(&aux_name);
-            targets.push(Arc::new(Url::from_file_path(path).ok()?));
+            targets.push(db.intern_document(DocumentData::from(Url::from_file_path(path).ok()?)));
         }
     }
 

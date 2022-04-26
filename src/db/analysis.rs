@@ -47,9 +47,9 @@ pub struct Extras {
 
 #[derive(Debug, PartialEq, Eq, Clone, Default, Hash)]
 pub struct ImplicitLinks {
-    pub aux: Vec<Arc<Url>>,
-    pub log: Vec<Arc<Url>>,
-    pub pdf: Vec<Arc<Url>>,
+    pub aux: Vec<Document>,
+    pub log: Vec<Document>,
+    pub pdf: Vec<Document>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
@@ -64,7 +64,7 @@ pub enum ExplicitLinkKind {
 pub struct ExplicitLink {
     pub stem: SmolStr,
     pub stem_range: TextRange,
-    pub targets: Vec<Arc<Url>>,
+    pub targets: Vec<Document>,
     pub kind: ExplicitLinkKind,
 }
 
