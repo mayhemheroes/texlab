@@ -119,7 +119,7 @@ mod tests {
     use insta::assert_snapshot;
 
     fn render_simple(text: &str) -> String {
-        let root = bibtex::SyntaxNode::new_root(bibtex::parse(text).green);
+        let root = bibtex::SyntaxNode::new_root(bibtex::parse(text));
         let key = root
             .children()
             .find_map(bibtex::Entry::cast)

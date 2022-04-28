@@ -5,11 +5,6 @@ use super::{
     SyntaxKind::{self, *},
 };
 
-#[derive(Clone)]
-pub struct Parse {
-    pub green: GreenNode,
-}
-
 #[derive(Debug, Clone, Copy)]
 struct ParserContext {
     allow_environment: bool,
@@ -80,15 +75,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(mut self) -> Parse {
+    pub fn parse(mut self) -> GreenNode {
         self.builder.start_node(ROOT.into());
         self.preamble();
         while self.peek().is_some() {
             self.content(ParserContext::default());
         }
+
         self.builder.finish_node();
-        let green = self.builder.finish();
-        Parse { green }
+        self.builder.finish()
     }
 
     fn content(&mut self, context: ParserContext) {
@@ -1320,7 +1315,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub fn parse(text: &str) -> Parse {
+pub fn parse(text: &str) -> GreenNode {
     Parser::new(text).parse()
 }
 
@@ -1333,7 +1328,7 @@ mod tests {
     use super::*;
 
     fn setup(text: &str) -> latex::SyntaxNode {
-        latex::SyntaxNode::new_root(parse(&text.trim().replace('\r', "")).green)
+        latex::SyntaxNode::new_root(parse(&text.trim().replace('\r', "")))
     }
 
     #[test]

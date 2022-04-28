@@ -5,11 +5,6 @@ use super::{
     SyntaxKind::{self, *},
 };
 
-#[derive(Debug, Clone)]
-pub struct Parse {
-    pub green: GreenNode,
-}
-
 struct Parser<'a> {
     lexer: Lexer<'a>,
     builder: GreenNodeBuilder<'static>,
@@ -41,7 +36,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(mut self) -> Parse {
+    pub fn parse(mut self) -> GreenNode {
         self.builder.start_node(ROOT.into());
         while let Some(kind) = self.peek() {
             match kind {
@@ -52,9 +47,9 @@ impl<'a> Parser<'a> {
                 _ => self.junk(),
             }
         }
+
         self.builder.finish_node();
-        let green = self.builder.finish();
-        Parse { green }
+        self.builder.finish()
     }
 
     fn trivia(&mut self) {
@@ -310,7 +305,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub fn parse(text: &str) -> Parse {
+pub fn parse(text: &str) -> GreenNode {
     Parser::new(Lexer::new(text)).parse()
 }
 
@@ -323,7 +318,7 @@ mod tests {
     use super::*;
 
     fn setup(text: &str) -> bibtex::SyntaxNode {
-        bibtex::SyntaxNode::new_root(parse(&text.trim().replace('\r', "")).green)
+        bibtex::SyntaxNode::new_root(parse(&text.trim().replace('\r', "")))
     }
 
     #[test]

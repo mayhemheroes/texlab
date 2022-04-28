@@ -6,7 +6,7 @@ mod parser;
 pub use self::{
     cst::*,
     kind::SyntaxKind::{self, *},
-    parser::{parse, Parse},
+    parser::parse,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

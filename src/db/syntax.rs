@@ -40,11 +40,11 @@ fn syntax_tree(db: &dyn SyntaxDatabase, document: Document) -> SyntaxTree {
     let text = db.source_code(document);
     match db.language(document) {
         DocumentLanguage::Latex => {
-            let green = latex::parse(&text).green;
+            let green = latex::parse(&text);
             SyntaxTree::Latex(green)
         }
         DocumentLanguage::Bibtex => {
-            let tree = bibtex::parse(&text).green;
+            let tree = bibtex::parse(&text);
             SyntaxTree::Bibtex(tree)
         }
         DocumentLanguage::BuildLog => {
