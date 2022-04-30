@@ -3,7 +3,7 @@ mod distro_file;
 mod environment;
 mod explicit_link;
 mod graphics_path;
-mod implicit_link;
+// mod implicit_link;
 mod label_name;
 mod label_number;
 mod theorem;
@@ -22,7 +22,6 @@ use self::{
     environment::analyze_begin,
     explicit_link::{analyze_import, analyze_include},
     graphics_path::analyze_graphics_path,
-    implicit_link::analyze_implicit_links,
     label_name::analyze_label_name,
     label_number::analyze_label_number,
     theorem::analyze_theorem_definition,
@@ -34,7 +33,6 @@ use super::{
 
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct Extras {
-    pub implicit_links: ImplicitLinks,
     pub explicit_links: Vec<ExplicitLink>,
     pub has_document_environment: bool,
     pub command_names: FxHashSet<SmolStr>,
@@ -43,13 +41,6 @@ pub struct Extras {
     pub label_numbers_by_name: FxHashMap<String, String>,
     pub theorem_environments: Vec<TheoremEnvironment>,
     pub graphics_paths: FxHashSet<String>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Default, Hash)]
-pub struct ImplicitLinks {
-    pub aux: Vec<Document>,
-    pub log: Vec<Document>,
-    pub pdf: Vec<Document>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
@@ -64,7 +55,7 @@ pub enum ExplicitLinkKind {
 pub struct ExplicitLink {
     pub stem: SmolStr,
     pub stem_range: TextRange,
-    pub targets: Vec<Document>,
+    pub targets: im::Vector<Document>,
     pub kind: ExplicitLinkKind,
 }
 
@@ -112,7 +103,6 @@ fn extras(db: &dyn AnalysisDatabase, document: Document) -> Arc<Extras> {
     let mut extras = Extras::default();
     if let SyntaxTree::Latex(green) = db.syntax_tree(document) {
         let root = latex::SyntaxNode::new_root(green);
-        analyze_implicit_links(&mut extras, db, document);
         for node in root.descendants() {
             analyze_command(&mut extras, node.clone())
                 .or_else(|| analyze_command_definition(&mut extras, node.clone()))

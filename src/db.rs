@@ -135,15 +135,18 @@ impl RootDatabase {
     }
 
     fn expand_children(&mut self, document: Document) {
-        let extras = self.extras(document);
-        let mut all_targets = vec![&extras.implicit_links.aux, &extras.implicit_links.log];
-        for link in &extras.explicit_links {
+        let mut all_targets = vec![
+            self.linked_auxiliary_files(document, AuxiliaryFileKind::Aux),
+            self.linked_auxiliary_files(document, AuxiliaryFileKind::Log),
+        ];
+
+        for link in &self.extras(document).explicit_links {
             if link
                 .as_component_name()
                 .and_then(|name| COMPONENT_DATABASE.find(&name))
                 .is_none()
             {
-                all_targets.push(&link.targets);
+                all_targets.push(link.targets.clone());
             }
         }
 

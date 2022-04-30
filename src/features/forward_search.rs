@@ -54,12 +54,12 @@ pub fn execute_forward_search(
         })
         .filter(|document| request.db.lookup_intern_document(*document).uri.scheme() == "file")?;
 
-    let extras = request.db.extras(root_document);
-    let pdf_path = extras
-        .implicit_links
-        .pdf
-        .iter()
-        .map(|document| request.db.lookup_intern_document(*document).uri)
+    let pdf_path = request
+        .db
+        .linked_auxiliary_files(root_document, crate::db::AuxiliaryFileKind::Pdf)
+        .into_iter()
+        .map(|document| request.db.lookup_intern_document(document).uri)
+        .filter(|uri| uri.scheme() == "file")
         .filter_map(|uri| uri.to_file_path().ok())
         .find(|path| path.exists())?;
 

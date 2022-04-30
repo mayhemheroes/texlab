@@ -36,15 +36,16 @@ pub fn analyze_include(
     let base_uri = db.base_uri(document);
     for path in include.path_list()?.keys() {
         let stem = path.to_string();
-        let mut targets = vec![db.intern_document(DocumentData::from(base_uri.join(&stem).ok()?))];
+        let mut targets =
+            im::vector![db.intern_document(DocumentData::from(base_uri.join(&stem).ok()?))];
         for extension in extensions {
             let path = format!("{}.{}", stem, extension);
-            targets.push(db.intern_document(DocumentData::from(base_uri.join(&path).ok()?)));
+            targets.push_back(db.intern_document(DocumentData::from(base_uri.join(&path).ok()?)));
         }
 
         resolve_distro_file(db.distro_resolver().as_ref(), &stem, extensions)
             .into_iter()
-            .for_each(|target| targets.push(db.intern_document(DocumentData::from(target))));
+            .for_each(|target| targets.push_back(db.intern_document(DocumentData::from(target))));
 
         extras.explicit_links.push(ExplicitLink {
             kind,
@@ -66,7 +67,6 @@ pub fn analyze_import(
     let import = latex::Import::cast(node)?;
 
     let base_uri = db.base_uri(document);
-    let mut targets = Vec::new();
     let directory = import
         .directory()
         .and_then(|dir| dir.key())
@@ -76,10 +76,11 @@ pub fn analyze_import(
 
     let file = import.file()?.key()?;
     let stem = file.to_string();
-    targets.push(db.intern_document(DocumentData::from(directory.join(&stem).ok()?)));
-    targets.push(db.intern_document(DocumentData::from(
-        directory.join(&format!("{}.tex", stem)).ok()?,
-    )));
+
+    let targets = im::vector![
+        db.intern_document(directory.join(&stem).ok()?.into()),
+        db.intern_document(directory.join(&format!("{}.tex", stem)).ok()?.into())
+    ];
 
     extras.explicit_links.push(ExplicitLink {
         stem: stem.into(),
