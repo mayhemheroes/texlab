@@ -1,0 +1,7 @@
+project: texlab
+target: parse-bibtex
+
+cmds:
+  - cmd: /parse_bibtex
+  - cmd: /parse_bibtex_no_inst @@
+    libfuzzer: false
